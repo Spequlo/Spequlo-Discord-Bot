@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import logging 
 from dotenv import load_dotenv
 import os
@@ -10,15 +11,30 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 CLICKUP_TOKEN = os.getenv('CLICKUP_TOKEN')
 
+
+
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix='/', intents=intents)
+# bot = commands.Bot(command_prefix='/', intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents)
 
+###########################
+ServerID = discord.Object(id=1498392028378173461)
+
+
+@bot.tree.command(name="test", description="Testing", guild=ServerID)
+# @app_commands.describe(task="The task you want to assign")
+async def test(interaction: discord.Interaction):
+    await interaction.response.send_message("Test Successful")
+
+
+# ####################
 @bot.event
 async def on_ready():
+    await bot.tree.sync(guild=ServerID)
     with open('channels.json', 'r') as file:
         data = json.load(file)
         channel = bot.get_channel(data["test"])
@@ -70,13 +86,8 @@ headers = {
     "Content-Type": "application/json"
 }
 
-
-# @bot.command()
-# async def assignself(ctx):
-#     pass
-
 @bot.command()
-async def assignself(ctx, task):
+async def assignme(ctx, task):
     with open('members.json', 'r') as file:
         members = json.load(file)
 
