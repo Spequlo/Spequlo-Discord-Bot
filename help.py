@@ -1,6 +1,21 @@
 import requests
+import json
 
-def createTask(task_data, LIST_ID: int, TOKEN: str):
+def createTask(LIST_ID: int, TOKEN: str, userID: int, task: str, priority: int, desc: str = "."):
+    with open('members.json', 'r') as file:
+        members = json.load(file)
+
+    if str(userID) not in members:
+        return 401
+
+    task_data = {
+        "name": str(task),
+        "description": str(desc),
+        "priority": int(priority),
+        "status": "to do",
+        "assignees": [int(members[str(userID)])]
+    }
+
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
 
     headers = {
@@ -10,7 +25,8 @@ def createTask(task_data, LIST_ID: int, TOKEN: str):
 
     response = requests.post(url, json=task_data, headers=headers)
     print(response.status_code) 
-    print(response.json())
 
     return response.status_code
 
+def validateClickUp():
+    
