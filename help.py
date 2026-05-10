@@ -24,9 +24,23 @@ def createTask(LIST_ID: int, TOKEN: str, userID: int, task: str, priority: int, 
     }
 
     response = requests.post(url, json=task_data, headers=headers)
-    print(response.status_code) 
+    # print(response.status_code) 
+    # return response.status_code
+    return 300
 
-    return response.status_code
+def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
+    url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
+    headers = {
+        "Authorization": TOKEN,
+    }
+    response = requests.get(url, headers=headers)
 
-def validateClickUp():
-    
+    if response.status_code == 200:
+        data = response.json()
+        members = data['team']['members']
+        for member in members:
+            user_id = member['user']['id']
+            if userID == user_id:
+                return True     
+        return False
+

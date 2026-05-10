@@ -3,18 +3,19 @@
 
 import discord
 from discord.ext import commands
-# from discord import app_commands
+from discord import app_commands
 import logging 
 from dotenv import load_dotenv
 import os
 import json
-# from help import createTask
+from help import createTask, validateClickUp
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 CLICKUP_TOKEN = os.getenv('CLICKUP_TOKEN')
 DISCORD_ID = os.getenv('DISCORD_SERVER_ID')
+CLICKUP_WORKSPACE_ID = os.getenv('CLICKUP_WORKSPACE_ID')
 CLICKUP_LIST_ID = os.getenv('CLICKUP_LIST_ID')
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
@@ -48,96 +49,91 @@ async def on_member_join(member):
 
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signup(interaction: discord.Interaction, id: int):
+    with open('channels.json', 'r') as file:
+        channels = json.load(file)
+
+    if interaction.channel.id != channels["test"]:
+        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+   
     user = interaction.user
     clickup_member_entry = {str(user.id): int(id)}
 
     with open('members.json', 'r') as file:
         data = json.load(file)
 
-    # with open('channels.json', 'r') as file:
-    #     channels = json.load(file)
-    # if interaction.channel.id != channels["test"]:
-    # embed = discord.Embed(
-    #     title="Wrong Channel",
-    #     description="Please use this command in the commands channel.",
-    #     color=discord.Color.red()
-    # )
-
-    # await interaction.response.send_message(embed=embed, ephemeral=True)
-    # return
-
     if str(user.id) in data:
         embed = discord.Embed(title=f"You already signed up.", description="You're already a member on clickup", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
         return
 
-    data.update(clickup_member_entry)
+    if validateClickUp(int(CLICKUP_WORKSPACE_ID), CLICKUP_TOKEN, id):
+        data.update(clickup_member_entry)
 
-    with open('members.json', 'w') as file:
-        json.dump(data, file, indent=4)
+        with open('members.json', 'w') as file:
+            json.dump(data, file, indent=4)
 
-    with open('channels.json', 'r') as file:
-        data = json.load(file)
-
-    channel = bot.get_channel(data["test"]) #change to cammands
-    if channel:
-        embed = discord.Embed(title="You are signed into ClickUp.", description=f"{user.mention}, you can now assign and view your assigned tasks", color=discord.Color.green())
-       
-           await interaction.response.send_message(embed=embed)
-
-        await channel.send(embed=embed)
+        embed = discord.Embed(title="You are signed into ClickUp.", description=f"{user.mention}, you can now assign and view your assigned tasks", color=discord.Color.green())       
+        await interaction.response.send_message(embed=embed)
         return
 
-# @bot.tree.command(name="assignme", description="Assign yourself a task on ClickUp", guild=ServerID)
-# @app_commands.choices(priority=[
-#     app_commands.Choice(name="Urgent", value=1),
-#     app_commands.Choice(name="High", value=2),
-#     app_commands.Choice(name="Normal", value=3),
-#     app_commands.Choice(name="Low", value=4)
-# ])
-# async def assignme(interaction: discord.Interaction, task: str, priority: int, desc: str=""): #add status as a drop down, add priority as a drop down
-#     user = interaction.user
+    embed = discord.Embed(title="I couldn't find you on ClickUp", description=f"{user.mention}, Be sure you used the right ClickUp ID!", color=discord.Color.red())       
+    await interaction.response.send_message(embed=embed)
+ 
+@bot.tree.command(name="assignme", description="Assign yourself a task on ClickUp", guild=ServerID)
+@app_commands.choices(priority=[
+    app_commands.Choice(name="Urgent", value=1),
+    app_commands.Choice(name="High", value=2),
+    app_commands.Choice(name="Normal", value=3),
+    app_commands.Choice(name="Low", value=4)
+])
+async def assignme(interaction: discord.Interaction, task: str, priority: int, desc: str=""): #add status as a drop down, add priority as a drop down
+    user = interaction.user
+    code = createTask(CLICKUP_LIST_ID, CLICKUP_TOKEN, user.id, task, priority, desc)
 
-#     response = createTask(CLICKUP_LIST_ID, CLICKUP_TOKEN, interaction.user.id, task, priority, desc)
+    if code == 401:
+        embed = discord.Embed(title="You need to sign up first", description=f"{user.mention}, you haven't signed up to ClickUp with me yet.", color=discord.Color.red())
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    if code == 200:
+        embed = discord.Embed(title=f"Task Successfully Created", description=f"{task}.", color=discord.Color.green())
+        embed.add_field(name="Assigned to", value=f"{user.mention}")
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
+    await interaction.response.send_message(f"Failed to assign task!")
 
-#     if response == 401:
-#         await interaction.response.send_message(f"You needs to sign up first {user.mention}.")
-#         return
+@bot.tree.command(name="assign", description="Assign a user a task on ClickUp", guild=ServerID)
+@app_commands.describe(user="The user you want to assign task to")
+@app_commands.choices(priority=[
+    app_commands.Choice(name="Urgent", value=1),
+    app_commands.Choice(name="High", value=2),
+    app_commands.Choice(name="Normal", value=3),
+    app_commands.Choice(name="Low", value=4)
+])
+async def assign(interaction: discord.Interaction, user: discord.Member, task: str, priority: int, desc: str = ""): #add status as a drop down, add priority as a drop down
+    code = createTask(CLICKUP_LIST_ID, CLICKUP_TOKEN, user.id, task, priority, desc)
 
-#     embed = discord.Embed(title=f"Task Successfully Created", description=f"{task}.", color=discord.Color.dark_red())
-#     embed.add_field(name="Assigned to", value=f"{user.mention}")
+    if code == 401:
+        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    if code == 200:
+        embed = discord.Embed(title=f"Task Successfully Created", description=f"{task}.", color=discord.Color.green())
+        embed.add_field(name="Assigned to", value=f"{user.mention}")
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
+    await interaction.response.send_message(f"Failed to assign task!")
 
-#     if response == 200:
-#         await interaction.response.send_message(embed=embed)
-#     else:
-#         await interaction.response.send_message(f"Failed to assign task!")
-
-# @bot.tree.command(name="assign", description="Assign a user a task on ClickUp", guild=ServerID)
-# @app_commands.describe(user="The user you want to assign task to")
-# @app_commands.choices(priority=[
-#     app_commands.Choice(name="Urgent", value=1),
-#     app_commands.Choice(name="High", value=2),
-#     app_commands.Choice(name="Normal", value=3),
-#     app_commands.Choice(name="Low", value=4)
-# ])
-# async def assign(interaction: discord.Interaction, user: discord.Member, task: str, priority: int, desc: str = "."): #add status as a drop down, add priority as a drop down
-#     response = createTask(CLICKUP_LIST_ID, CLICKUP_TOKEN, user.id, task, priority, desc)
-
-#     if response == 401:
-#         await interaction.response.send_message(f"{user.mention} needs to sign up first.")
-#         return
-
-#     embed = discord.Embed(title=f"Task Successfully Created", description=f"{task}.", color=discord.Color.dark_red())
-#     embed.add_field(name="Assigned to", value=f"{user.mention}")
-
-#     if response == 200:
-#         await interaction.response.send_message(embed=embed)
-#     else:
-#         await interaction.response.send_message(f"Failed to assign task!")
-
-# @bot.tree.command(name="test", description="Testing", guild=ServerID)
-# async def testi(interaction: discord.Interaction):
-#     await interaction.response.send_message("Test Successful")
+@bot.tree.command(name="viewmytasks", description="Get a list of all your tasks", guild=ServerID)
+async def testi(interaction: discord.Interaction):
+    await interaction.response.send_message("Test Successful")
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
 

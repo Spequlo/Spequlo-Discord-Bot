@@ -1,0 +1,25 @@
+response = {
+    'code': 200,
+    'data': {
+        'team': {
+            'id': '90141192885',
+            'name': "Edidiong Ekong's Workspace",
+            'members': [
+                {
+                    'user': {
+                        'id': 89212007,
+                        'username': 'Divine Akabom',
+                        'email': 'divineakabom@gmail.com'
+                    }
+                },
+                {
+                    'user': {
+                        'id': 88389270,
+                        'username': 'Edidiong Ekong',
+                        'email': 'edidiongdekong@gmail.com'
+                    }
+                }
+            ]
+        }
+    }
+}
