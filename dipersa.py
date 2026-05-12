@@ -132,6 +132,7 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
     await interaction.response.send_message(embed=embed)
 
+#work on these
 @bot.tree.command(name="viewmytasks", description="Get a list of all your tasks", guild=ServerID)
 async def viewMyTasks(interaction: discord.Interaction):
     with open('members.json', 'r') as file:
@@ -149,9 +150,3 @@ async def viewMyTasks(interaction: discord.Interaction):
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
 
-    # embed = discord.Embed(title="Dipersa Commands and Info", description="I am Dipersa. I control the management of ClickUp tasks from discord", color=discord.Color.blue())
-    # embed.add_field(name="/signup", value="Connect your Discord user to your CLickUp user in the Spequlo Workspace", inline=False)
-    # embed.add_field( name="/assignme", value="Assign yourself a task on ClickUp.", inline=False)
-    # embed.add_field(name="/assign", value="Assign another user a task on ClickUp.", inline=False)
-    # embed.add_field(name="/viewmytasks", value="Get a list of all your tasks and their progress.", inline=False)
-    # embed.set_footer(text="Thank you for using Dipersa.")
