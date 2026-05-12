@@ -8,7 +8,7 @@ import logging
 from dotenv import load_dotenv
 import os
 import json
-from help import createTask, validateClickUp
+from help import createTask, validateClickUp, getTasks
 
 load_dotenv()
 
@@ -34,7 +34,7 @@ async def on_ready():
     embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
     with open('channels.json', 'r') as file:
         data = json.load(file)
-        channel = bot.get_channel(data["test"]) #change to commands id
+        channel = bot.get_channel(data["info"]) #change to commands id
         if channel:
             await channel.send(embed=embed)
     print("Ready!!!")
@@ -47,12 +47,13 @@ async def on_member_join(member):
     if channel:
         await channel.send(f"Hey {member.mention}, welcome to the Spequlo server! 🎉")
 
+## Commands
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
-async def signup(interaction: discord.Interaction, id: int):
+async def signUp(interaction: discord.Interaction, id: int):
     with open('channels.json', 'r') as file:
         channels = json.load(file)
 
-    if interaction.channel.id != channels["test"]:
+    if interaction.channel.id != channels["commands"]:
         embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
@@ -68,7 +69,7 @@ async def signup(interaction: discord.Interaction, id: int):
         await interaction.response.send_message(embed=embed)
         return
 
-    if validateClickUp(int(CLICKUP_WORKSPACE_ID), CLICKUP_TOKEN, id):
+    if validateClickUp(CLICKUP_WORKSPACE_ID, CLICKUP_TOKEN, id):
         data.update(clickup_member_entry)
 
         with open('members.json', 'w') as file:
@@ -88,7 +89,7 @@ async def signup(interaction: discord.Interaction, id: int):
     app_commands.Choice(name="Normal", value=3),
     app_commands.Choice(name="Low", value=4)
 ])
-async def assignme(interaction: discord.Interaction, task: str, priority: int, desc: str=""): #add status as a drop down, add priority as a drop down
+async def assignMe(interaction: discord.Interaction, task: str, priority: int, desc: str=""): #add status as a drop down, add priority as a drop down
     user = interaction.user
     code = createTask(CLICKUP_LIST_ID, CLICKUP_TOKEN, user.id, task, priority, desc)
 
@@ -104,7 +105,7 @@ async def assignme(interaction: discord.Interaction, task: str, priority: int, d
         return
     
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
-    await interaction.response.send_message(f"Failed to assign task!")
+    await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="assign", description="Assign a user a task on ClickUp", guild=ServerID)
 @app_commands.describe(user="The user you want to assign task to")
@@ -129,13 +130,28 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         return
     
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
-    await interaction.response.send_message(f"Failed to assign task!")
+    await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="viewmytasks", description="Get a list of all your tasks", guild=ServerID)
-async def testi(interaction: discord.Interaction):
-    await interaction.response.send_message("Test Successful")
+async def viewMyTasks(interaction: discord.Interaction):
+    with open('members.json', 'r') as file:
+        members = json.load(file)
+
+    userID = members[str(interaction.user.id)]
+    
+    tasks = getTasks(CLICKUP_LIST_ID, CLICKUP_TOKEN, userID)
+
+# embed
+
+    print(tasks)
+
+    await interaction.response.send_message(userID)
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
 
-
-
+    # embed = discord.Embed(title="Dipersa Commands and Info", description="I am Dipersa. I control the management of ClickUp tasks from discord", color=discord.Color.blue())
+    # embed.add_field(name="/signup", value="Connect your Discord user to your CLickUp user in the Spequlo Workspace", inline=False)
+    # embed.add_field( name="/assignme", value="Assign yourself a task on ClickUp.", inline=False)
+    # embed.add_field(name="/assign", value="Assign another user a task on ClickUp.", inline=False)
+    # embed.add_field(name="/viewmytasks", value="Get a list of all your tasks and their progress.", inline=False)
+    # embed.set_footer(text="Thank you for using Dipersa.")

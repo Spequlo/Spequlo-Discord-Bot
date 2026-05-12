@@ -1,2 +1,6 @@
 discord.py
-python.env
+python-dotenv
+requests
+loggin
+os
+json
