@@ -8,13 +8,13 @@ import logging
 from dotenv import load_dotenv
 import os
 from server import *
-from help import createTask, validateClickUp, getTasks
+from help import createTask, validateClickUp
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 CLICKUP_TOKEN = os.getenv('CLICKUP_TOKEN')
-DISCORD_ID = os.getenv('DISCORD_SERVER_ID')
+DISCORD__SERVER_ID = os.getenv('DISCORD_SERVER_ID')
 CLICKUP_WORKSPACE_ID = os.getenv('CLICKUP_WORKSPACE_ID')
 CLICKUP_LIST_ID = os.getenv('CLICKUP_LIST_ID')
 
@@ -23,18 +23,29 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-ServerID = discord.Object(id=int(DISCORD_ID))
+ServerID = discord.Object(id=int(DISCORD__SERVER_ID))
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 ##  Events
 @bot.event
 async def on_ready():
-    await bot.tree.sync(guild=ServerID)
-    embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-    channel = bot.get_channel(getChannel("commands"))
-    if channel:
-        await channel.send(embed=embed)
-    print("Ready!!!")
+    try:
+        await bot.tree.sync(guild=ServerID)
+        embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
+        channel = await bot.fetch_channel(getChannel("commands"))
+        if channel:
+            await channel.send(embed=embed)
+        print("Ready!!!")
+    except Exception as e:
+        print(f"Startup Error: {e}")
+
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    if message.content.startswith('$hello'):
+        await message.channel.send('Hello!')
 
 # @bot.event
 # async def on_member_join(member):
@@ -44,12 +55,12 @@ async def on_ready():
 #     if channel:
 #         await channel.send(f"Hey {member.mention}, welcome to the Spequlo server! 🎉")
 
-## Commands
+# Commands
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
-    channel = getChannel("commands")
+    channel_id = getChannel("commands")
 
-    if interaction.channel.id != channel:
+    if interaction.channel.id != channel_id:
         embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
@@ -84,6 +95,13 @@ async def assignMe(interaction: discord.Interaction, task: str, priority: int, d
     user = interaction.user
     code = createTask(CLICKUP_LIST_ID, CLICKUP_TOKEN, user.id, task, priority, desc)
 
+    channel_id = getChannel("commands")
+
+    if interaction.channel.id != channel_id:
+        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+   
     if code == 401:
         embed = discord.Embed(title="You need to sign up first", description=f"{user.mention}, you haven't signed up to ClickUp with me yet.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
@@ -109,6 +127,13 @@ async def assignMe(interaction: discord.Interaction, task: str, priority: int, d
 async def assign(interaction: discord.Interaction, user: discord.Member, task: str, priority: int, desc: str = ""): #add status as a drop down, add priority as a drop down
     code = createTask(CLICKUP_LIST_ID, CLICKUP_TOKEN, user.id, task, priority, desc)
 
+    channel_id = getChannel("commands")
+
+    if interaction.channel.id != channel_id:
+        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+   
     if code == 401:
         embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)

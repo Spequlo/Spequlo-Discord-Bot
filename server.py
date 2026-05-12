@@ -19,10 +19,10 @@ def addMember(discord_id, clickup_id):
     return supabase.table("discord_members").insert({"discord_id": str(discord_id), "clickup_id": int(clickup_id)}).execute()
 
 def getChannel(channel_type: str):
-    response = supabase.table("discord_channels").select("channel_id").eq("channel_type",channel_type).execute()
+    response = supabase.table("discord_channels").select("channel_id").eq("channel_type", channel_type).execute()
     if not response.data:
         return None
     return int(response.data[0]["channel_id"])
 
-def addChannel(server_id, channel_type, channel_id):
-    return supabase.table("discord_channels").insert({"server_id": str(server_id), "channel_type": channel_type, "channel_id": str(channel_id)}).execute()
+def addChannel(channel_type, channel_id):
+    return supabase.table("discord_channels").insert({"channel_type": channel_type, "channel_id": str(channel_id)}).execute()

@@ -12,7 +12,7 @@ def createTask(LIST_ID: int, TOKEN: str, userID: int, task: str, priority: int, 
         "description": str(desc),
         "priority": int(priority),
         "status": "to do",
-        "assignees": member["clickup_id"]
+        "assignees": [int(member["clickup_id"])]
     }
 
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
