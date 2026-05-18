@@ -83,48 +83,57 @@ async def signUp(interaction: discord.Interaction, id: int):
     embed = discord.Embed(title="I couldn't find you on ClickUp", description=f"{user.mention}, Be sure you used the right ClickUp ID!", color=discord.Color.red())       
     await interaction.response.send_message(embed=embed)
  
-# @bot.tree.command(name="assignme", description="Assign yourself a task on ClickUp", guild=ServerID)
-# @app_commands.choices(
-#     priority=[
-#         app_commands.Choice(name="Urgent", value=1),
-#         app_commands.Choice(name="High", value=2),
-#         app_commands.Choice(name="Normal", value=3),
-#         app_commands.Choice(name="Low", value=4)
-#     ],
-#     list=[
-#         app_commands.Choice(name="Internal Tools", value=901414443186),
-#         app_commands.Choice(name="Backend", value=2),
-#         app_commands.Choice(name="Design", value=3)
-#     ]
-# )
-# async def assignMe(interaction: discord.Interaction, list: int, task: str, priority: int, desc: str=""): #add status as a drop down, add priority as a drop down
-#     channel_id = getChannel("commands")
-#     if interaction.channel.id != channel_id:
-#         embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
-#         await interaction.response.send_message(embed=embed, ephemeral=True)
-#         return
+@bot.tree.command(name="assignme", description="Assign yourself a task on ClickUp", guild=ServerID)
+@app_commands.choices(
+    team=[    
+        app_commands.Choice(name="Mobile App", value="mobile_app"),
+        app_commands.Choice(name="Integration", value="integration"),
+        app_commands.Choice(name="Internal Tools", value="internal_tools"),
+        app_commands.Choice(name="Infrastructure", value="infrastructure"),
+        app_commands.Choice(name="Website", value="website")
+    ],
+    list=[
+        app_commands.Choice(name="Backlog", value="backlog"),
+        app_commands.Choice(name="Current Sprint", value="current_sprint"),
+        app_commands.Choice(name="Bugs", value="bugs")
+    ],
+    priority=[
+        app_commands.Choice(name="Urgent", value="1"),
+        app_commands.Choice(name="High", value="2"),
+        app_commands.Choice(name="Normal", value="3"),
+        app_commands.Choice(name="Low", value="4")
+    ]
+)
+async def assignMe(interaction: discord.Interaction, task: str, team: str, list: str, priority: str, desc: str = ""):
+    channel_id = getChannel("commands")
+    if interaction.channel.id != channel_id:
+        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
 
-#     user = interaction.user
-#     code = createTask(list, CLICKUP_TOKEN, user.id, task, priority, desc)
+    user = interaction.user
+    list_id = int(getListId(team, list))
+    code = createTask(CLICKUP_TOKEN, user.id, task, list_id, priority, desc)
 
-#     if code == 401:
-#         embed = discord.Embed(title="I couldn't find the list", description=f"{user.mention}. It looks like the list you wanted doesn't exist. Please contact the ClickUp Workspace Admin", color=discord.Color.red())
-#         await interaction.response.send_message(embed=embed)
-#         return
 
-#     if code == 402:
-#         embed = discord.Embed(title="You need to sign up first", description=f"{user.mention}, you haven't signed up to ClickUp with me yet.", color=discord.Color.red())
-#         await interaction.response.send_message(embed=embed)
-#         return
+    if code == 401:
+        embed = discord.Embed(title="I couldn't find the list", description=f"{user.mention}. It looks like the list you wanted doesn't exist. Please contact the ClickUp Workspace Admin", color=discord.Color.red())
+        await interaction.response.send_message(embed=embed)
+        return
+
+    if code == 402:
+        embed = discord.Embed(title="You need to sign up first", description=f"{user.mention}, you haven't signed up to ClickUp with me yet.", color=discord.Color.red())
+        await interaction.response.send_message(embed=embed)
+        return
     
-#     if code == 200:
-#         embed = discord.Embed(title=f"Task Successfully Created", description=f"{task}.", color=discord.Color.green())
-#         embed.add_field(name="Assigned to", value=f"{user.mention}")
-#         await interaction.response.send_message(embed=embed)
-#         return
+    if code == 200:
+        embed = discord.Embed(title=f"Task Successfully Created", description=f"{task}.", color=discord.Color.green())
+        embed.add_field(name="Assigned to", value=f"{user.mention}")
+        await interaction.response.send_message(embed=embed)
+        return
     
-#     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
-#     await interaction.response.send_message(embed=embed)
+    embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
+    await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="assign", description="Assign a user a task on ClickUp", guild=ServerID)
 @app_commands.choices(
@@ -141,13 +150,13 @@ async def signUp(interaction: discord.Interaction, id: int):
         app_commands.Choice(name="Bugs", value="bugs")
     ],
     priority=[
-        app_commands.Choice(name="Urgent", value=1),
-        app_commands.Choice(name="High", value=2),
-        app_commands.Choice(name="Normal", value=3),
-        app_commands.Choice(name="Low", value=4)
+        app_commands.Choice(name="Urgent", value="1"),
+        app_commands.Choice(name="High", value="2"),
+        app_commands.Choice(name="Normal", value="3"),
+        app_commands.Choice(name="Low", value="4")
     ]
 )
-async def assign(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: int, desc: str = ""):
+async def assign(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""):
     channel_id = getChannel("commands")
 
     if interaction.channel.id != channel_id:
@@ -156,7 +165,7 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         return
     
     list_id = int(getListId(team, list))
-    code = createTask(CLICKUP_TOKEN, user.id, task, int(list_id), priority, desc)
+    code = createTask(CLICKUP_TOKEN, user.id, task, list_id, priority, desc)
 
     if code == 401:
         embed = discord.Embed(title="I couldn't find the list or space", description=f"{user.mention}. It looks like the list you wanted doesn't exist. Please contact the ClickUp Workspace Admin", color=discord.Color.red())
