@@ -166,6 +166,7 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     
+    
     if team == "website": 
         list_id = int(getListId("website", "list"))
     else:
