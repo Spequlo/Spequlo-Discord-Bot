@@ -10,10 +10,10 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def getMember(discord_id: int):
-    response = supabase.table("discord_members").select("*").eq("discord_id", str(discord_id)).execute()
+    response = supabase.table("discord_members").select("clickup_id").eq("discord_id", str(discord_id)).execute()
     if not response.data:
         return None
-    return response.data[0]
+    return response.data[0]["clickup_id"]
 
 def addMember(discord_id, clickup_id):
     return supabase.table("discord_members").insert({"discord_id": str(discord_id), "clickup_id": int(clickup_id)}).execute()
@@ -26,3 +26,9 @@ def getChannel(channel_type: str):
 
 def addChannel(channel_type, channel_id):
     return supabase.table("discord_channels").insert({"channel_type": channel_type, "channel_id": str(channel_id)}).execute()
+
+def getListId(team, list):
+    response = supabase.table("clickup_lists").select("list_id").eq("team", team).eq("list", list).execute()
+    if not response.data:
+        return None
+    return response.data[0]["list_id"]
