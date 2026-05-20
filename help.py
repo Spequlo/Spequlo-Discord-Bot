@@ -1,18 +1,18 @@
 import requests
 from server import *
 
-def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
+def createTask(LIST_ID: int, TOKEN: str, userID: int, task: str, priority: int, desc: str = "."):
     member = getMember(userID)
 
     if not member:
-        return 402
+        return 401
 
     task_data = {
         "name": str(task),
         "description": str(desc),
-        "priority": priority,
-        # "status": "to do",
-        "assignees": [int(member)]
+        "priority": int(priority),
+        "status": "to do",
+        "assignees": [int(member["clickup_id"])]
     }
 
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
@@ -21,8 +21,8 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
         "Authorization": TOKEN,
         "Content-Type": "application/json"
     }
+
     response = requests.post(url, json=task_data, headers=headers)
-    print(response.text)
     return response.status_code
 
 def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
