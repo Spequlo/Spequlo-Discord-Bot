@@ -1,7 +1,7 @@
 import requests
 from server import *
 
-def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: str, desc: str = "."): 
+def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: str, desc: str = ""): 
     member = getMember(userID)
 
     if not member:

@@ -28,7 +28,7 @@ def addChannel(channel_type, channel_id):
     return supabase.table("discord_channels").insert({"channel_type": channel_type, "channel_id": str(channel_id)}).execute()
 
 def getListId(team, list):
-    response = supabase.table("clickup_lists").select("clickup_list_id").eq("team", team).eq("list", list).execute()
+    response = supabase.table("clickup_lists").select("list_id").eq("team", team).eq("list", list).execute()
     if not response.data:
         return None
     return response.data[0]["list_id"]
