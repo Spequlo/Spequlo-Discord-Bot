@@ -133,7 +133,15 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
-   
+    
+    
+    if team == "website": 
+        list_id = int(getListId("website", "list"))
+    else:
+        list_id = int(getListId(team, list))
+    
+    code = createTask(CLICKUP_TOKEN, user.id, task, list_id, int(priority), desc)
+
     if code == 401:
         embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
