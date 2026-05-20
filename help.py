@@ -22,7 +22,6 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
         "Content-Type": "application/json"
     }
     response = requests.post(url, json=task_data, headers=headers)
-    print(response.text)
     return response.status_code
 
 def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):

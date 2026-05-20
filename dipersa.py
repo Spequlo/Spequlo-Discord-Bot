@@ -117,7 +117,7 @@ async def assignMe(interaction: discord.Interaction, task: str, team: str, list:
     else:
         list_id = int(getListId(team, list))
 
-    code = createTask(CLICKUP_TOKEN, user.id, task, list_id, priority, desc)
+    code = createTask(CLICKUP_TOKEN, user.id, task, list_id, int(priority), desc)
 
     if code == 401:
         embed = discord.Embed(title="I couldn't find the list", description=f"{user.mention}. It looks like the list you wanted doesn't exist. Please contact the ClickUp Workspace Admin", color=discord.Color.red())
@@ -165,7 +165,6 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
-    
     
     if team == "website": 
         list_id = int(getListId("website", "list"))
