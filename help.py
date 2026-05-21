@@ -41,7 +41,8 @@ def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
         return False
 
 def getTasks(TOKEN: str, userId: int, team: str, list: str):
-    allTasks = []
+    FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure"]
+    LISTS = ["backlog", "current_sprint", "bugs"]
 
     member = getMember(userId)
     if not member:
@@ -49,58 +50,36 @@ def getTasks(TOKEN: str, userId: int, team: str, list: str):
 
     headers = {"Authorization": TOKEN}
     params = {"assignees[]": [int(member)]}
+    allTasks = []
 
-    if team and list:
-        listId = getListId(team, list)
-        url = f"https://api.clickup.com/api/v2/list/{listId}/task"
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
+    teams = [team] if team else FOLDERS
+    lists = [list] if list else LISTS
+
+    for team in teams:
+        for list in lists:
+            listId = getListId(team, list)
+            if not listId:
+                print(f"No list ID found for {team}/{list}")
+                return "NO-ID"
+            url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
+            response = requests.get(url, headers=headers, params=params)
+
+            if response.status_code != 200:
+                print(f"Error fetching {team}/{list}: {response.status_code} - {response.text}")
+                return 401
+
             data = response.json()
-            tasks = simplifyTasks(data["tasks"])
-            return tasks
-        else:
-            print(f"Error fetching tasks: {response.status_code} - {response.text}")
-            return 401
+            tasks = _simplifyTasks(data["tasks"])
+            # return tasks
+            # return
+            if "tasks" in data:
+                allTasks.extend(tasks)
+    if not allTasks:
+        return "EMPTY"
 
-        # for folder in folders:
-        # listId1 = getListId(folder, "backlog")
-        # listId2 = getListId(folder, "current_sprint")
-        # listId3 = getListId(folder, "bugs")
-
-        # url1 = f"https://api.clickup.com/api/v2/list/{listId1}/task"
-        # url2 = f"https://api.clickup.com/api/v2/list/{listId2}/task"
-        # url3 = f"https://api.clickup.com/api/v2/list/{listId3}/task"
-            
-        # response1 = requests.get(url1, headers=headers, params=params)
-        # response2 = requests.get(url2, headers=headers, params=params)
-        # response3 = requests.get(url3, headers=headers, params=params)
-
-        # if response1.status_code != 200:
-        #     print(response1.json())
-        #     data = response1.json()
-        #     if "tasks" in data:
-        #         allTasks.extend(data["tasks"])
-        #     continue
-        # if response2.status_code != 200:
-        #     print(response2.json())
-        #     data = response2.json()
-        #     if "tasks" in data:
-        #         allTasks.extend(data["tasks"])
-        #     continue
-        # if response3.status_code != 200:
-        #     print(response3.json())
-        #     data = response3.json()
-        #     if "tasks" in data:
-        #         allTasks.extend(data["tasks"])
-        #     continue
-    elif list and not team:
-        pass
-    else:
-        pass
-    # folders = ["mobile_app, internal tools, integration, internal_tools, infrastructure, website"]
     return allTasks
 
-def simplifyTasks(tasks: list):
+def _simplifyTasks(tasks: list):
     simplified = []
 
     for task in tasks:
@@ -120,3 +99,4 @@ def simplifyTasks(tasks: list):
         })
 
     return simplified
+

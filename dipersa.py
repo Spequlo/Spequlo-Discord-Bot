@@ -181,23 +181,42 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
 
 @bot.tree.command(name="viewmytasks", description="Assign a user a task on ClickUp", guild=ServerID)
 async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: str = ""): 
+    await interaction.response.defer() 
     user = interaction.user
     tasks = getTasks(CLICKUP_TOKEN, user.id, team, list)
 
-    if tasks != 401:
-        embed = discord.Embed(title=f"Your Tasks", color=discord.Color.green())
+    if tasks == 401:
+        embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
+        await interaction.followup.send(embed=embed)
+        return
 
-        for i, task in enumerate(tasks):
-            embed.add_field(name=f"Task {i + 1}", value=task['task_name'], inline=False)
-            embed.add_field(name="Team", value=task["folder"])
-            embed.add_field(name="List", value=task["list"])
-            embed.add_field(name="Status", value=task["status"])
-            embed.add_field(name="Priotity", value=task["priority"])
-            embed.add_field(name="Deadline", value=task["deadline"])
-            embed.add_field(name="Created By", value=task["creator_id"])
-            embed.add_field(name="Assigned to", value=f"{user.mention}")
+    if tasks == 402:
+        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
+        await interaction.followup.send(embed=embed)
+        return
+    
+    if tasks == "EMPTY":
+        embed = discord.Embed(title=f"No Tasks Found", description=f"There are no tasks assigned to you", color=discord.Color.green())
+        await interaction.followup.send(embed=embed)
+        return
+    
+    if tasks == "NO-ID":
+        embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.green())
+        await interaction.followup.send(embed=embed)
+        return
 
-    embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
-    await interaction.response.send_message(embed=embed)
+    embed = discord.Embed(title=f"Your Tasks", color=discord.Color.green())
+
+    for i, task in enumerate(tasks):
+        embed.add_field(name=f"Task {i + 1}", value=task['task_name'], inline=False)
+        embed.add_field(name="Team", value=task["folder"])
+        embed.add_field(name="List", value=task["list"])
+        embed.add_field(name="Status", value=task["status"])
+        embed.add_field(name="Priotity", value=task["priority"])
+        embed.add_field(name="Deadline", value=task["deadline"])
+        embed.add_field(name="Created By", value=task["creator_id"])
+        embed.add_field(name="Assigned to", value=f"{user.mention}")
+    
+    await interaction.followup.send(embed=embed)
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
