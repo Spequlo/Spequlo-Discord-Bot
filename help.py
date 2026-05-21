@@ -40,22 +40,63 @@ def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
                 return True     
         return False
 
-# def getTasks(LIST_ID: int, TOKEN: str, id: int):
-#     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
+def getTasks(TOKEN: str, userId: int, team: str, list: str):
+    FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure", "website"]
+    LISTS = ["backlog", "current_sprint", "bugs"]
 
-#     headers = {
-#         "Authorization": TOKEN
-#     }
+    member = getMember(userId)
+    if not member:
+        return 402
 
-#     params = {
-#         "assignees[]": id
-#     }
+    headers = {"Authorization": TOKEN}
+    params = {"assignees[]": [int(member)]}
+    allTasks = []
 
-#     response = requests.get(url, headers=headers, params=params)
-#     data = response.json()
-#     if response.status_code != 200:
-#         print(data)
-#         return
-    
-#     tasks = data["tasks"]
-#     return tasks
+    teams = [team] if team else FOLDERS
+
+    for team in teams:
+        lists = ["list"] if team == "website" else LISTS
+        if list:
+            lists = [list] if list in lists else []
+
+        for lst in lists:
+            listId = getListId(team, lst)
+            if not listId:
+                print(f"No list ID found for {team}/{list}")
+                return "NO-ID"
+            url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
+            response = requests.get(url, headers=headers, params=params)
+
+            if response.status_code != 200:
+                print(f"Error fetching {team}/{list}: {response.status_code} - {response.text}")
+                return 401
+
+            data = response.json()
+            if "tasks" in data:
+                allTasks.extend(data["tasks"])
+    if not allTasks:
+        return "EMPTY"
+
+    return allTasks
+
+def simplifyTasks(tasks: list):
+    simplified = []
+
+    for task in tasks:
+        simplified.append({
+            "task_id": task["id"],
+            "task_name": task["name"],
+
+            "folder": task["folder"]["name"],
+            "list": task["list"]["name"],
+
+            "status": task["status"]["status"],
+            "priority": task["priority"]["priority"] if task["priority"] else None,
+            "deadline": task["due_date"],
+
+            "creator_id": task["creator"]["id"],
+            "assignees": [assignee["id"] for assignee in task["assignees"]]
+        })
+
+    return simplified
+

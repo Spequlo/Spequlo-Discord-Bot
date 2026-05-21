@@ -15,6 +15,12 @@ def getMember(discord_id: int):
         return None
     return response.data[0]["clickup_id"]
 
+def getMemberDiscord(clickup_id: int):
+    response = supabase.table("discord_members").select("discord_id").eq("clickup_id", str(clickup_id)).execute()
+    if not response.data:
+        return None
+    return response.data[0]["discord_id"]
+
 def addMember(discord_id, clickup_id):
     return supabase.table("discord_members").insert({"discord_id": str(discord_id), "clickup_id": int(clickup_id)}).execute()
 
