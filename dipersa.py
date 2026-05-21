@@ -179,6 +179,7 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="viewmytasks", description="Assign a user a task on ClickUp", guild=ServerID)
 @app_commands.choices(
     team=[    
         app_commands.Choice(name="Mobile App", value="mobile_app"),
@@ -193,7 +194,6 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         app_commands.Choice(name="Bugs", value="bugs")
     ]
 )
-@bot.tree.command(name="viewmytasks", description="Assign a user a task on ClickUp", guild=ServerID)
 async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: str = ""): 
     await interaction.response.defer() 
     user = interaction.user
@@ -210,12 +210,12 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: st
         return
     
     if tasks == "EMPTY":
-        embed = discord.Embed(title=f"No Tasks Found", description=f"There are no tasks assigned to you", color=discord.Color.green())
+        embed = discord.Embed(title=f"No Tasks Found", description=f"There are no tasks assigned to you", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
     
     if tasks == "NO-ID":
-        embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.green())
+        embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
 

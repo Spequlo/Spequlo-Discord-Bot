@@ -41,7 +41,7 @@ def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
         return False
 
 def getTasks(TOKEN: str, userId: int, team: str, list: str):
-    FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure"]
+    FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure", "website"]
     LISTS = ["backlog", "current_sprint", "bugs"]
 
     member = getMember(userId)
@@ -53,11 +53,14 @@ def getTasks(TOKEN: str, userId: int, team: str, list: str):
     allTasks = []
 
     teams = [team] if team else FOLDERS
-    lists = [list] if list else LISTS
 
     for team in teams:
-        for list in lists:
-            listId = getListId(team, list)
+        lists = ["list"] if team == "website" else LISTS
+        if list:
+            lists = [list] if list in lists else []
+
+        for lst in lists:
+            listId = getListId(team, lst)
             if not listId:
                 print(f"No list ID found for {team}/{list}")
                 return "NO-ID"
