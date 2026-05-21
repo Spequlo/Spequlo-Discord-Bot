@@ -43,8 +43,10 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    if message.content.startswith('$hello'):
+    if message.content.lower().startswith('hello'):
         await message.channel.send('Hello!')
+    if message.content.lower().startswith('nice'):
+        await message.channel.send('very nice')
 
 # @bot.event
 # async def on_member_join(member):
@@ -57,12 +59,6 @@ async def on_message(message):
 # Commands
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
-    # channel_id = getChannel("commands_test")
-
-    # if interaction.channel.id != channel_id:
-    #     embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
-    #     await interaction.response.send_message(embed=embed, ephemeral=True)
-    #     return
     user = interaction.user
     clickup_member_entry = {str(user.id): int(id)}
 
@@ -218,20 +214,28 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: st
         embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
-
-    my_tasks = simplifyTasks(tasks)
-    embed = discord.Embed(title=f"Your Tasks", color=discord.Color.green())
-
-    for i, task in enumerate(my_tasks):
-        embed.add_field(name=f"Task {i + 1}", value=task['task_name'], inline=False)
-        embed.add_field(name="Team", value=task["folder"])
-        embed.add_field(name="List", value=task["list"])
-        embed.add_field(name="Status", value=task["status"])
-        embed.add_field(name="Priotity", value=task["priority"])
-        embed.add_field(name="Deadline", value=task["deadline"])
-        embed.add_field(name="Created By", value=task["creator_id"])
-        embed.add_field(name="Assigned to", value=f"{user.mention}")
     
-    await interaction.followup.send(embed=embed)
+    embeds = []
+    chunk_size = 3
+    my_tasks = simplifyTasks(tasks)
+    for chunk_start in range(0, len(my_tasks), chunk_size):
+        chunk = my_tasks[chunk_start:chunk_start + chunk_size]
+
+        embed = discord.Embed(title=f"Your Tasks", color=discord.Color.green())
+
+        for i, task in enumerate(chunk):
+            assignees = " ".join(f"<@{getMemberDiscord(a)}>" for a in task["assignees"])
+            embed.add_field(name=f"Task {chunk_start + i + 1}", value=task['task_name'], inline=False)
+            embed.add_field(name="Team", value=task["folder"])
+            embed.add_field(name="List", value=task["list"])
+            embed.add_field(name="Status", value=task["status"])
+            embed.add_field(name="Priotity", value=task["priority"])
+            embed.add_field(name="Deadline", value=task["deadline"])
+            embed.add_field(name="Created By", value=f"<@{getMemberDiscord(task["creator_id"])}>")
+            embed.add_field(name="Assigned to", value=assignees)
+    
+        embeds.append(embed)
+
+    await interaction.followup.send(embeds=embeds[:10])
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
