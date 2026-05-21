@@ -179,6 +179,20 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
     await interaction.response.send_message(embed=embed)
 
+@app_commands.choices(
+    team=[    
+        app_commands.Choice(name="Mobile App", value="mobile_app"),
+        app_commands.Choice(name="Integration", value="integration"),
+        app_commands.Choice(name="Internal Tools", value="internal_tools"),
+        app_commands.Choice(name="Infrastructure", value="infrastructure"),
+        app_commands.Choice(name="Website", value="website")
+    ],
+    list=[
+        app_commands.Choice(name="Backlog", value="backlog"),
+        app_commands.Choice(name="Current Sprint", value="current_sprint"),
+        app_commands.Choice(name="Bugs", value="bugs")
+    ]
+)
 @bot.tree.command(name="viewmytasks", description="Assign a user a task on ClickUp", guild=ServerID)
 async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: str = ""): 
     await interaction.response.defer() 
@@ -205,9 +219,10 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: st
         await interaction.followup.send(embed=embed)
         return
 
+    my_tasks = simplifyTasks(tasks)
     embed = discord.Embed(title=f"Your Tasks", color=discord.Color.green())
 
-    for i, task in enumerate(tasks):
+    for i, task in enumerate(my_tasks):
         embed.add_field(name=f"Task {i + 1}", value=task['task_name'], inline=False)
         embed.add_field(name="Team", value=task["folder"])
         embed.add_field(name="List", value=task["list"])

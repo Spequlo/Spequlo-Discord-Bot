@@ -69,17 +69,14 @@ def getTasks(TOKEN: str, userId: int, team: str, list: str):
                 return 401
 
             data = response.json()
-            tasks = _simplifyTasks(data["tasks"])
-            # return tasks
-            # return
             if "tasks" in data:
-                allTasks.extend(tasks)
+                allTasks.extend(data["tasks"])
     if not allTasks:
         return "EMPTY"
 
     return allTasks
 
-def _simplifyTasks(tasks: list):
+def simplifyTasks(tasks: list):
     simplified = []
 
     for task in tasks:
