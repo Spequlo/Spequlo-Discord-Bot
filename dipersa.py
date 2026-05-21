@@ -31,7 +31,7 @@ async def on_ready():
     try:
         await bot.tree.sync(guild=ServerID)
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-        channel = await bot.fetch_channel(getChannel("commands"))
+        channel = await bot.fetch_channel(getChannel("commands_test"))
         if channel:
             await channel.send(embed=embed)
         print("Ready!!!")
@@ -43,8 +43,10 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    if message.content.startswith('$hello'):
+    if message.content.lower().startswith('hello'):
         await message.channel.send('Hello!')
+    if message.content.lower().startswith('nice'):
+        await message.channel.send('very nice')
 
 # @bot.event
 # async def on_member_join(member):
@@ -57,13 +59,6 @@ async def on_message(message):
 # Commands
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
-    channel_id = getChannel("commands")
-
-    if interaction.channel.id != channel_id:
-        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-   
     user = interaction.user
     clickup_member_entry = {str(user.id): int(id)}
 
@@ -105,12 +100,6 @@ async def signUp(interaction: discord.Interaction, id: int):
     ]
 )
 async def assignMe(interaction: discord.Interaction, task: str, team: str, list: str, priority: str, desc: str = ""):
-    channel_id = getChannel("commands")
-    if interaction.channel.id != channel_id:
-        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
     user = interaction.user
     if team == "website": 
         list_id = int(getListId("website", "list"))
@@ -159,13 +148,7 @@ async def assignMe(interaction: discord.Interaction, task: str, team: str, list:
         app_commands.Choice(name="Low", value="4")
     ]
 )
-async def assign(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""):
-    channel_id = getChannel("commands")
-    if interaction.channel.id != channel_id:
-        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-    
+async def assign(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
     if team == "website": 
         list_id = int(getListId("website", "list"))
     else:
@@ -191,5 +174,68 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
     
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
     await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="viewmytasks", description="Assign a user a task on ClickUp", guild=ServerID)
+@app_commands.choices(
+    team=[    
+        app_commands.Choice(name="Mobile App", value="mobile_app"),
+        app_commands.Choice(name="Integration", value="integration"),
+        app_commands.Choice(name="Internal Tools", value="internal_tools"),
+        app_commands.Choice(name="Infrastructure", value="infrastructure"),
+        app_commands.Choice(name="Website", value="website")
+    ],
+    list=[
+        app_commands.Choice(name="Backlog", value="backlog"),
+        app_commands.Choice(name="Current Sprint", value="current_sprint"),
+        app_commands.Choice(name="Bugs", value="bugs")
+    ]
+)
+async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: str = ""): 
+    await interaction.response.defer() 
+    user = interaction.user
+    tasks = getTasks(CLICKUP_TOKEN, user.id, team, list)
+
+    if tasks == 401:
+        embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
+        await interaction.followup.send(embed=embed)
+        return
+
+    if tasks == 402:
+        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
+        await interaction.followup.send(embed=embed)
+        return
+    
+    if tasks == "EMPTY":
+        embed = discord.Embed(title=f"No Tasks Found", description=f"There are no tasks assigned to you", color=discord.Color.red())
+        await interaction.followup.send(embed=embed)
+        return
+    
+    if tasks == "NO-ID":
+        embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.red())
+        await interaction.followup.send(embed=embed)
+        return
+    
+    embeds = []
+    chunk_size = 3
+    my_tasks = simplifyTasks(tasks)
+    for chunk_start in range(0, len(my_tasks), chunk_size):
+        chunk = my_tasks[chunk_start:chunk_start + chunk_size]
+
+        embed = discord.Embed(title=f"Your Tasks", color=discord.Color.green())
+
+        for i, task in enumerate(chunk):
+            assignees = " ".join(f"<@{getMemberDiscord(a)}>" for a in task["assignees"])
+            embed.add_field(name=f"Task {chunk_start + i + 1}", value=task['task_name'], inline=False)
+            embed.add_field(name="Team", value=task["folder"])
+            embed.add_field(name="List", value=task["list"])
+            embed.add_field(name="Status", value=task["status"])
+            embed.add_field(name="Priotity", value=task["priority"])
+            embed.add_field(name="Deadline", value=task["deadline"])
+            embed.add_field(name="Created By", value=f"<@{getMemberDiscord(task["creator_id"])}>")
+            embed.add_field(name="Assigned to", value=assignees)
+    
+        embeds.append(embed)
+
+    await interaction.followup.send(embeds=embeds[:10])
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
