@@ -31,7 +31,7 @@ async def on_ready():
     try:
         await bot.tree.sync(guild=ServerID)
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-        channel = await bot.fetch_channel(getChannel("commands"))
+        channel = await bot.fetch_channel(getChannel("commands_test"))
         if channel:
             await channel.send(embed=embed)
         print("Ready!!!")
@@ -57,13 +57,12 @@ async def on_message(message):
 # Commands
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
-    channel_id = getChannel("commands")
+    # channel_id = getChannel("commands_test")
 
-    if interaction.channel.id != channel_id:
-        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-   
+    # if interaction.channel.id != channel_id:
+    #     embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
+    #     await interaction.response.send_message(embed=embed, ephemeral=True)
+    #     return
     user = interaction.user
     clickup_member_entry = {str(user.id): int(id)}
 
@@ -105,12 +104,6 @@ async def signUp(interaction: discord.Interaction, id: int):
     ]
 )
 async def assignMe(interaction: discord.Interaction, task: str, team: str, list: str, priority: str, desc: str = ""):
-    channel_id = getChannel("commands")
-    if interaction.channel.id != channel_id:
-        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
     user = interaction.user
     if team == "website": 
         list_id = int(getListId("website", "list"))
@@ -159,13 +152,7 @@ async def assignMe(interaction: discord.Interaction, task: str, team: str, list:
         app_commands.Choice(name="Low", value="4")
     ]
 )
-async def assign(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""):
-    channel_id = getChannel("commands")
-    if interaction.channel.id != channel_id:
-        embed = discord.Embed(title="Wrong Channel", description="Please use this command in the commands channel.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-    
+async def assign(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
     if team == "website": 
         list_id = int(getListId("website", "list"))
     else:
@@ -189,6 +176,13 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         await interaction.response.send_message(embed=embed)
         return
     
+    embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="viewmytasks", description="Assign a user a task on ClickUp", guild=ServerID)
+async def viewMyTasks(interaction: discord.Interaction, team: str = ""): 
+    user = interaction.user
+    tasks = getTasks(CLICKUP_TOKEN, user.id, team)
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
     await interaction.response.send_message(embed=embed)
 

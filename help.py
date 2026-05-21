@@ -40,22 +40,31 @@ def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
                 return True     
         return False
 
-# def getTasks(LIST_ID: int, TOKEN: str, id: int):
-#     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
-
-#     headers = {
-#         "Authorization": TOKEN
-#     }
-
-#     params = {
-#         "assignees[]": id
-#     }
-
-#     response = requests.get(url, headers=headers, params=params)
-#     data = response.json()
-#     if response.status_code != 200:
-#         print(data)
-#         return
+def getTasks(TOKEN: str, userId: int, team: str):
+    member = getMember(userId)
+    if not member:
+        return 402
     
-#     tasks = data["tasks"]
-#     return tasks
+    listId = getListId(team, "backlog")
+
+    for i in is:
+        
+    
+    url = f"https://api.clickup.com/api/v2/list/{listId}/task"
+
+    headers = {
+        "Authorization": TOKEN
+    }
+
+    params = {
+        "assignees[]": userId
+    }
+
+    response = requests.get(url, headers=headers, params=params)
+    data = response.json()
+    if response.status_code != 200:
+        print(data)
+        return
+    
+    tasks = data["tasks"]
+    return tasks
