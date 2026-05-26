@@ -48,14 +48,6 @@ async def on_message(message):
     if message.content.lower().startswith('nice'):
         await message.channel.send('very nice')
 
-# @bot.event
-# async def on_member_join(member):
-#     with open('channels.json', 'r') as file:
-#         data = json.load(file)
-#     channel = bot.get_channel(data["welcome"])
-#     if channel:
-#         await channel.send(f"Hey {member.mention}, welcome to the Spequlo server! 🎉")
-
 # Commands
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
@@ -184,16 +176,16 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         app_commands.Choice(name="Infrastructure", value="infrastructure"),
         app_commands.Choice(name="Website", value="website")
     ],
-    list=[
+    list_name=[
         app_commands.Choice(name="Backlog", value="backlog"),
         app_commands.Choice(name="Current Sprint", value="current_sprint"),
         app_commands.Choice(name="Bugs", value="bugs")
     ]
 )
-async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: str = ""): 
+async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_name: str = ""): 
     await interaction.response.defer() 
     user = interaction.user
-    tasks = getTasks(CLICKUP_TOKEN, user.id, team, list)
+    tasks = getTasks(CLICKUP_TOKEN, user.id, team, list_name)
 
     if tasks == 401:
         embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
@@ -215,27 +207,37 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list: st
         await interaction.followup.send(embed=embed)
         return
     
-    embeds = []
-    chunk_size = 3
-    my_tasks = simplifyTasks(tasks)
-    for chunk_start in range(0, len(my_tasks), chunk_size):
-        chunk = my_tasks[chunk_start:chunk_start + chunk_size]
+    messages = []
+    header = f"**Tasks for {user.mention}**\n{'━' * 30}\n"
+    current_message = header
+    my_tasks = list(simplifyTasks(tasks))
 
-        embed = discord.Embed(title=f"Your Tasks", color=discord.Color.green())
+    for i, task in enumerate(my_tasks):
+        assignees = " ".join(f"<@{getMemberDiscord(a)}>" for a in task["assignees"])
+        creator = f"<@{getMemberDiscord(task["creator_id"])}>"
 
-        for i, task in enumerate(chunk):
-            assignees = " ".join(f"<@{getMemberDiscord(a)}>" for a in task["assignees"])
-            embed.add_field(name=f"Task {chunk_start + i + 1}", value=task['task_name'], inline=False)
-            embed.add_field(name="Team", value=task["folder"])
-            embed.add_field(name="List", value=task["list"])
-            embed.add_field(name="Status", value=task["status"])
-            embed.add_field(name="Priotity", value=task["priority"])
-            embed.add_field(name="Deadline", value=task["deadline"])
-            embed.add_field(name="Created By", value=f"<@{getMemberDiscord(task["creator_id"])}>")
-            embed.add_field(name="Assigned to", value=assignees)
-    
-        embeds.append(embed)
+        task_text = (
+            f"\n**Task {i + 1} — {task['task_name']}**\n"
+            f"**Team:** {task['folder']}\n"
+            f"**List:** {task['list']}\n"
+            f"**Status:** {task['status']}\n"
+            f"**Priority:** {task['priority']}\n"
+            f"**Deadline:** {task['deadline']}\n"
+            f"**Created By:** {creator}\n"
+            f"**Assigned To:** {assignees}\n"
+        )
 
-    await interaction.followup.send(embeds=embeds[:10])
+        if len(current_message) + len(task_text) > 1900:
+            messages.append(current_message)
+            current_message = task_text
+        else:
+            current_message += task_text
+
+    if current_message:
+        messages.append(current_message)
+
+    for message in messages:
+        await interaction.followup.send(message)   
+
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
