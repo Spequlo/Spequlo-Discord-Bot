@@ -89,10 +89,14 @@ def simplifyTasks(tasks: list):
 
             "folder": task["folder"]["name"],
             "list": task["list"]["name"],
+            "list_id": task["list"]["id"],
 
             "status": task["status"]["status"],
+            "status_id": task["status"]["id"],
+
             "priority": task["priority"]["priority"] if task["priority"] else None,
             "deadline": task["due_date"],
+            "url": task["url"],
 
             "creator_id": task["creator"]["id"],
             "assignees": [assignee["id"] for assignee in task["assignees"]]
