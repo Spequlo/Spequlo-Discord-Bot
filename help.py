@@ -1,5 +1,9 @@
 import requests
 from server import *
+import time
+
+task_cache = {}
+CACHE_TTL = 60
 
 def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
     member = getMember(userID)
@@ -115,7 +119,6 @@ def getListStatuses(TOKEN: str, LIST_ID: str):
     data = response.json()
     return [s["status"] for s in data["statuses"]]
 
-
 def updateTaskStatus(TOKEN: str, TASK_ID: str, new_status: str):
     url = f"https://api.clickup.com/api/v2/task/{TASK_ID}"
     headers = {"Authorization": TOKEN, "Content-Type": "application/json"}
@@ -126,3 +129,23 @@ def updateTaskStatus(TOKEN: str, TASK_ID: str, new_status: str):
         return 401
     
     return 200
+
+def getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
+    cached = task_cache.get(user_id)
+
+    if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
+        return cached["tasks"]
+
+    tasks = getTasks(token, user_id, team, list_name)
+
+    if isinstance(tasks, list):
+        task_cache[user_id] = {
+            "tasks": list(simplifyTasks(tasks)),
+            "fetched_at": time.time()
+        }
+        return task_cache[user_id]["tasks"]
+
+    return tasks
+
+def invalidateTaskCache(user_id: int):
+    task_cache.pop(user_id, None)

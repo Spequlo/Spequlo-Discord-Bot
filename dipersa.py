@@ -25,6 +25,8 @@ intents.members = True
 ServerID = discord.Object(id=int(DISCORD__SERVER_ID))
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+pending_status_changes = {}
+
 ##  Events
 @bot.event
 async def on_ready():
@@ -185,24 +187,26 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
 async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_name: str = ""): 
     await interaction.response.defer() 
     user = interaction.user
-    tasks = getTasks(CLICKUP_TOKEN, user.id, team, list_name)
 
-    if tasks == 401:
+    my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
+
+
+    if my_tasks == 401:
         embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
 
-    if tasks == 402:
+    if my_tasks == 402:
         embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
     
-    if tasks == "EMPTY":
+    if my_tasks == "EMPTY":
         embed = discord.Embed(title=f"No Tasks Found", description=f"There are no tasks assigned to you", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
     
-    if tasks == "NO-ID":
+    if my_tasks == "NO-ID":
         embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
@@ -210,7 +214,6 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     messages = []
     header = f"**Tasks for {user.mention}**\n"
     current_message = header
-    my_tasks = list(simplifyTasks(tasks))
 
     for i, task in enumerate(my_tasks):
         assignees = " ".join(f"<@{getMemberDiscord(a)}>" for a in task["assignees"])
@@ -239,20 +242,16 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     for message in messages:
         await interaction.followup.send(message)   
 
-pending_status_changes = {}
-
 @bot.tree.command(name="changestatus", description="Change the status of one of your tasks", guild=ServerID)
 async def changeStatus(interaction: discord.Interaction, task_number: int):
     await interaction.response.defer()
     user = interaction.user
 
-    tasks = getTasks(CLICKUP_TOKEN, user.id, "", "")
+    my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id)
 
-    if tasks in [401, 402, "EMPTY", "NO-ID"]:
+    if my_tasks in [401, 402, "EMPTY", "NO-ID"]:
         await interaction.followup.send("Couldn't retrieve your tasks. Make sure you're signed up and have tasks assigned to you.")
         return
-
-    my_tasks = list(simplifyTasks(tasks))
 
     if task_number < 1 or task_number > len(my_tasks):
         await interaction.followup.send(f" Invalid task number. You have {len(my_tasks)} tasks — pick a number between 1 and {len(my_tasks)}.")
@@ -305,6 +304,7 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
         return
 
     del pending_status_changes[user.id]
+    invalidateTaskCache(user.id)
 
     await interaction.followup.send(
         f"**Status updated!**\n"
