@@ -104,3 +104,25 @@ def simplifyTasks(tasks: list):
 
     return simplified
 
+def getListStatuses(TOKEN: str, LIST_ID: str):
+    url = f"https://api.clickup.com/api/v2/list/{LIST_ID}"
+    headers = {"Authorization": TOKEN}
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        return 401
+    
+    data = response.json()
+    return [s["status"] for s in data["statuses"]]
+
+
+def updateTaskStatus(TOKEN: str, TASK_ID: str, new_status: str):
+    url = f"https://api.clickup.com/api/v2/task/{TASK_ID}"
+    headers = {"Authorization": TOKEN, "Content-Type": "application/json"}
+    payload = {"status": new_status}
+    response = requests.put(url, headers=headers, json=payload)
+
+    if response.status_code != 200:
+        return 401
+    
+    return 200

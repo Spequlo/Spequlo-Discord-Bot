@@ -208,7 +208,7 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
         return
     
     messages = []
-    header = f"**Tasks for {user.mention}**\n{'━' * 30}\n"
+    header = f"**Tasks for {user.mention}**\n"
     current_message = header
     my_tasks = list(simplifyTasks(tasks))
 
@@ -239,5 +239,42 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     for message in messages:
         await interaction.followup.send(message)   
 
+@bot.tree.command(name="changestatus", description="Change the status of one of your tasks", guild=ServerID)
+async def changeStatus(interaction: discord.Interaction, task_number: int):
+    await interaction.response.defer()
+    user = interaction.user
+    pending_status_changes = {}
+    tasks = getTasks(CLICKUP_TOKEN, user.id, "", "")
+
+    if tasks in [401, 402, "EMPTY", "NO-ID"]:
+        await interaction.followup.send("Couldn't retrieve your tasks. Make sure you're signed up and have tasks assigned to you.")
+        return
+
+    my_tasks = list(simplifyTasks(tasks))
+
+    if task_number < 1 or task_number > len(my_tasks):
+        await interaction.followup.send(f" Invalid task number. You have {len(my_tasks)} tasks — pick a number between 1 and {len(my_tasks)}.")
+        return
+
+    selected_task = my_tasks[task_number - 1]
+
+    statuses = getListStatuses(CLICKUP_TOKEN, selected_task["list_id"])
+
+    if statuses == 401:
+        await interaction.followup.send("Couldn't fetch statuses for that task's list. Please contact a dev.")
+        return
+
+    pending_status_changes[user.id] = {
+        "task": selected_task,
+        "statuses": statuses
+    }
+
+    status_list = "\n".join(f"**{i + 1}.** {s}" for i, s in enumerate(statuses))
+    await interaction.followup.send(
+        f"**Changing status for:** {selected_task['task_name']}\n"
+        f"**Current status:** {selected_task['status']}\n"
+        f"\n**Available statuses:**\n{status_list}\n"
+        f"\nUse `/confirmstatus <number>` to confirm."
+    )
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
