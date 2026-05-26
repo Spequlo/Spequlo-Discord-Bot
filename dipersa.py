@@ -106,7 +106,7 @@ async def assignMe(interaction: discord.Interaction, task: str, team: str, list:
         return
 
     if code == 402:
-        embed = discord.Embed(title="You need to sign up first", description=f"{user.mention}, you haven't signed up to ClickUp with me yet.", color=discord.Color.red())
+        embed = discord.Embed(title="You need to sign up first", description=f"{user.mention}, you haven't signed up to ClickUp with me yet. Use the `/signup` command", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
         return
     
@@ -154,7 +154,7 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         return
 
     if code == 402:
-        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
+        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the `/signup` command.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
         return
     
@@ -239,11 +239,13 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     for message in messages:
         await interaction.followup.send(message)   
 
+pending_status_changes = {}
+
 @bot.tree.command(name="changestatus", description="Change the status of one of your tasks", guild=ServerID)
 async def changeStatus(interaction: discord.Interaction, task_number: int):
     await interaction.response.defer()
     user = interaction.user
-    pending_status_changes = {}
+
     tasks = getTasks(CLICKUP_TOKEN, user.id, "", "")
 
     if tasks in [401, 402, "EMPTY", "NO-ID"]:
@@ -277,4 +279,36 @@ async def changeStatus(interaction: discord.Interaction, task_number: int):
         f"\nUse `/confirmstatus <number>` to confirm."
     )
 
+@bot.tree.command(name="confirmstatus", description="Confirm the new status for your task", guild=ServerID)
+async def confirmStatus(interaction: discord.Interaction, status_number: int):
+    await interaction.response.defer()
+    user = interaction.user
+
+    if user.id not in pending_status_changes:
+        await interaction.followup.send("No pending status change found. Use `/changestatus` first.")
+        return
+
+    pending = pending_status_changes[user.id]
+    statuses = pending["statuses"]
+    task = pending["task"]
+
+    if status_number < 1 or status_number > len(statuses):
+        await interaction.followup.send(f"Invalid status number. Pick a number between 1 and {len(statuses)}.")
+        return
+
+    new_status = statuses[status_number - 1]
+
+    result = updateTaskStatus(CLICKUP_TOKEN, task["task_id"], new_status)
+
+    if result == 401:
+        await interaction.followup.send("Failed to update the task status. Please contact a dev.")
+        return
+
+    del pending_status_changes[user.id]
+
+    await interaction.followup.send(
+        f"**Status updated!**\n"
+        f"**Task:** {task['task_name']}\n"
+        f"**New status:** {new_status}"
+    )
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
