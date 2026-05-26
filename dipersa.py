@@ -25,6 +25,8 @@ intents.members = True
 ServerID = discord.Object(id=int(DISCORD__SERVER_ID))
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+pending_status_changes = {}
+
 ##  Events
 @bot.event
 async def on_ready():
@@ -106,7 +108,7 @@ async def assignMe(interaction: discord.Interaction, task: str, team: str, list:
         return
 
     if code == 402:
-        embed = discord.Embed(title="You need to sign up first", description=f"{user.mention}, you haven't signed up to ClickUp with me yet.", color=discord.Color.red())
+        embed = discord.Embed(title="You need to sign up first", description=f"{user.mention}, you haven't signed up to ClickUp with me yet. Use the `/signup` command", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
         return
     
@@ -154,7 +156,7 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
         return
 
     if code == 402:
-        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
+        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the `/signup` command.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
         return
     
@@ -185,32 +187,33 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
 async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_name: str = ""): 
     await interaction.response.defer() 
     user = interaction.user
-    tasks = getTasks(CLICKUP_TOKEN, user.id, team, list_name)
 
-    if tasks == 401:
+    my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
+
+
+    if my_tasks == 401:
         embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
 
-    if tasks == 402:
+    if my_tasks == 402:
         embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
     
-    if tasks == "EMPTY":
+    if my_tasks == "EMPTY":
         embed = discord.Embed(title=f"No Tasks Found", description=f"There are no tasks assigned to you", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
     
-    if tasks == "NO-ID":
+    if my_tasks == "NO-ID":
         embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.red())
         await interaction.followup.send(embed=embed)
         return
     
     messages = []
-    header = f"**Tasks for {user.mention}**\n{'━' * 30}\n"
+    header = f"**Tasks for {user.mention}**\n"
     current_message = header
-    my_tasks = list(simplifyTasks(tasks))
 
     for i, task in enumerate(my_tasks):
         assignees = " ".join(f"<@{getMemberDiscord(a)}>" for a in task["assignees"])
@@ -239,5 +242,73 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     for message in messages:
         await interaction.followup.send(message)   
 
+@bot.tree.command(name="changestatus", description="Change the status of one of your tasks", guild=ServerID)
+async def changeStatus(interaction: discord.Interaction, task_number: int):
+    await interaction.response.defer()
+    user = interaction.user
 
+    my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id)
+
+    if my_tasks in [401, 402, "EMPTY", "NO-ID"]:
+        await interaction.followup.send("Couldn't retrieve your tasks. Make sure you're signed up and have tasks assigned to you.")
+        return
+
+    if task_number < 1 or task_number > len(my_tasks):
+        await interaction.followup.send(f" Invalid task number. You have {len(my_tasks)} tasks — pick a number between 1 and {len(my_tasks)}.")
+        return
+
+    selected_task = my_tasks[task_number - 1]
+
+    statuses = getListStatuses(CLICKUP_TOKEN, selected_task["list_id"])
+
+    if statuses == 401:
+        await interaction.followup.send("Couldn't fetch statuses for that task's list. Please contact a dev.")
+        return
+
+    pending_status_changes[user.id] = {
+        "task": selected_task,
+        "statuses": statuses
+    }
+
+    status_list = "\n".join(f"**{i + 1}.** {s}" for i, s in enumerate(statuses))
+    await interaction.followup.send(
+        f"**Changing status for:** {selected_task['task_name']}\n"
+        f"**Current status:** {selected_task['status']}\n"
+        f"\n**Available statuses:**\n{status_list}\n"
+        f"\nUse `/confirmstatus <number>` to confirm."
+    )
+
+@bot.tree.command(name="confirmstatus", description="Confirm the new status for your task", guild=ServerID)
+async def confirmStatus(interaction: discord.Interaction, status_number: int):
+    await interaction.response.defer()
+    user = interaction.user
+
+    if user.id not in pending_status_changes:
+        await interaction.followup.send("No pending status change found. Use `/changestatus` first.")
+        return
+
+    pending = pending_status_changes[user.id]
+    statuses = pending["statuses"]
+    task = pending["task"]
+
+    if status_number < 1 or status_number > len(statuses):
+        await interaction.followup.send(f"Invalid status number. Pick a number between 1 and {len(statuses)}.")
+        return
+
+    new_status = statuses[status_number - 1]
+
+    result = updateTaskStatus(CLICKUP_TOKEN, task["task_id"], new_status)
+
+    if result == 401:
+        await interaction.followup.send("Failed to update the task status. Please contact a dev.")
+        return
+
+    del pending_status_changes[user.id]
+    invalidateTaskCache(user.id)
+
+    await interaction.followup.send(
+        f"**Status updated!**\n"
+        f"**Task:** {task['task_name']}\n"
+        f"**New status:** {new_status}"
+    )
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
