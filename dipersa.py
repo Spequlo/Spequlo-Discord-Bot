@@ -4,6 +4,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+from discord.app_commands import checks
 import logging 
 from dotenv import load_dotenv
 import os
@@ -11,6 +12,7 @@ import json
 from server import *
 from help import *
 from ai import *
+from google.genai.errors import ClientError
 
 load_dotenv()
 
@@ -316,6 +318,7 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
     )
 
 @bot.tree.command(name="summarize", description="Summarize recent messages", guild=ServerID)
+@checks.cooldown(1, 15.0)
 async def summarize(interaction: discord.Interaction, timeframe: str = "30m", context: str = ""):
     await interaction.response.defer()
     user = interaction.user
@@ -338,7 +341,7 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
         if not content:
             continue
 
-        messages.append(f"{msg.created_at.strftime('%H:%M')} - {msg.author.display_name}: {content}")
+        messages.append(f"{msg.created_at.strftime('%H:%M')} - {msg.author.id} ({msg.author.display_name}): {content}")
         
     if not messages:
         await interaction.followup.send(f"No messages found in the last {timeframe}")
@@ -349,10 +352,15 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
 
     try:
         result = summarizeTranscript(transcript[-12000:], context)
+    except ClientError as e:
+        if "RESOURCE_EXHAUSTED" in str(e):
+            await interaction.followup.send("Gemini free-tier quota exhausted. Please try again later.")
+            return
     except Exception as e:
         print(e)
-        result = "Failed to generate summary."
-
+        await interaction.followup.send("Failed to generate summary.")
+        return
+        
     cache_key = (user.id, channel.id)
     discussion_summary[cache_key] = {
         "transcript": transcript,
@@ -365,6 +373,7 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
     await interaction.followup.send(formatSummary(result))
 
 @bot.tree.command(name="revisesummary", description="Regenerate the created summary", guild=ServerID)
+@checks.cooldown(1, 15.0)
 async def reviseSummary(interaction: discord.Interaction, feedback: str):
     await interaction.response.defer()
     user = interaction.user
@@ -382,9 +391,14 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
 
     try:
         new_summary = regenerateSummary(old_summary, transcript[-12000:], feedback)
+    except ClientError as e:
+        if "RESOURCE_EXHAUSTED" in str(e):
+            await interaction.followup.send("Gemini free-tier quota exhausted. Please try again later.")
+            return
     except Exception as e:
         print(e)
-        new_summary = "Failed to generate summary."
+        await interaction.followup.send("Failed to generate summary.")
+        return
 
     discussion_summary[cache_key] = {
         "transcript": transcript,
@@ -415,45 +429,42 @@ async def createTasks(interaction: discord.Interaction, team: str, list: str):
     await interaction.response.defer()
     user = interaction.user
     channel = interaction.channel
-    session = discussion_summary[(user.id, channel.id)]
+    session = discussion_summary.get((user.id, channel.id))
+
+    if not session:
+        await interaction.followup.send("No discussion summary found. Run `/summarize` first.")
+        return
+
+    created = 0
+    failed = []
 
     if team == "website": 
         list_id = int(getListId("website", "list"))
     else:
         list_id = int(getListId(team, list))
 
+    if list_id == 401:
+        await interaction.followup.send("Could not find the specified list.")
+        return
+
     for task in session["tasks"]:
-
-        assignee_name = task["assignee_name"]
-
-        discord_member = discord.utils.get(interaction.guild.members, display_name=assignee_name)
-
-        if not discord_member:
+        discord_id = task["assignee_discord_id"]
+        
+        if not discord_id:
+            failed.append(f"{task['name']} (No assignee)")
             continue
 
-        createTask(CLICKUP_TOKEN, discord_member.id, task["name"], list_id, task["priority"], task["description"])
+        code = createTask(CLICKUP_TOKEN, discord_id, task["name"], list_id, task["priority"], task["description"])
+        if code == 200:
+            created += 1
+        else:
+            failed.append(f"{task['name']} (Error {code})")
 
-    await interaction.followup.send("Tasks Assigned Successfully")
+    message = (f"Created {created} task(s)\n")
 
+    if failed:
+        message += ("\nFailed:\n" + "\n".join(failed))
 
-#     await sendLongMessage(interaction, summary)
-
-# async def sendLongMessage(interaction, text):
-#     chunks = []
-
-#     while len(text) > 1900:
-#         split = text.rfind("\n", 0, 1900)
-
-#         if split == -1:
-#             split = 1900
-
-#         chunks.append(text[:split])
-#         text = text[split:]
-
-#     chunks.append(text)
-
-#     for chunk in chunks:
-#         await interaction.followup.send(chunk)
-
+    await interaction.followup.send(message)
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)

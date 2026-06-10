@@ -1,6 +1,7 @@
 from google import genai
 import os
 import json
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,6 +28,13 @@ def summarizeTranscript(transcript: str, context: str):
     - Extract a deadline if one was explicitly mentioned.
     - If no deadline was discussed, set deadline to null.
     - Do not invent deadlines.
+    - Each message begins with:
+        TIME - DISCORD_ID (DISPLAY_NAME): message
+        Example: 15:30 - 123456789 (John): I will create the PCB BOM.
+    - When a task is assigned to a participant, return the participant's Discord ID in assignee_discord_id.
+    - If no assignee is clearly identified, set assignee_discord_id to null.
+    - Do not use display names for task assignment.
+    - Use display names for the summary.
 
     JSON Schema:
 
@@ -45,8 +53,9 @@ def summarizeTranscript(transcript: str, context: str):
             {{
                 "name": "task title",
                 "description": "task details",
-                "priority": 3 or use context,
-                "deadline": "YYYY-MM-DD or null"
+                "priority": 3,
+                "deadline": "YYYY-MM-DD or null",
+                "assignee_discord_id: 123456789
                 "assignee_name": "person name"
             }}
         ]
@@ -56,8 +65,15 @@ def summarizeTranscript(transcript: str, context: str):
     {transcript}
     """
 
-    response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
-    return json.loads(response.text)
+    retries = 3
+    last_error = None
+    for attempt in range(retries):
+        try:
+            response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+            return json.loads(response.text)
+        except Exception as e:        
+            last_error = e
+        raise last_error
 
 def regenerateSummary(summary: str, transcript: str, feedback: str):
     prompt = f"""
@@ -81,6 +97,13 @@ def regenerateSummary(summary: str, transcript: str, feedback: str):
     - Extract a deadline if one was explicitly mentioned.
     - If no deadline was discussed, set deadline to null.
     - Do not invent deadlines.
+    - Each message begins with:
+        TIME - DISCORD_ID (DISPLAY_NAME): message
+        Example: 15:30 - 123456789 (John): I will create the PCB BOM.
+    - When a task is assigned to a participant, return the participant's Discord ID in assignee_discord_id.
+    - If no assignee is clearly identified, set assignee_discord_id to null.
+    - Do not use display names for task assignment.
+    - Use display names for the summary.
 
     JSON Schema:
 
@@ -99,16 +122,25 @@ def regenerateSummary(summary: str, transcript: str, feedback: str):
             {{
                 "name": "task title",
                 "description": "task details",
-                "priority": 3 or use context,
-                "deadline": "YYYY-MM-DD or null"
+                "priority": 3,
+                "deadline": "YYYY-MM-DD or null",
+                "assignee_discord_id: 123456789
                 "assignee_name": "person name"
             }}
         ]
     }}
     """
 
-    response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
-    return json.loads(response.text)
+    retries = 3
+    last_error = None
+    for attempt in range(retries):
+        try:
+            response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+            return json.loads(response.text)
+        except Exception as e:        
+            last_error = e
+        raise last_error
+
 
 
 

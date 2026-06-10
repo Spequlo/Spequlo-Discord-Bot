@@ -169,7 +169,6 @@ def parseTimeframe(timeframe: str):
     raise ValueError("Invalid timeframe")
 
 def formatSummary(result: dict) -> str:
-
     participants = "\n".join(f"• {p}" for p in result["participants"])
 
     tasks = ""
@@ -177,9 +176,10 @@ def formatSummary(result: dict) -> str:
     for i, task in enumerate(result["tasks"], start=1):
         tasks += (
             f"\n{i}. {task['name']}\n"
-            f"   Assigned: {task['assignee_name']}\n"
-            f"   Priority: {task['priority']}\n"
+            f"   Assigned: <@{task['assignee_discord_id']}>\n"
             f"   Details: {task['description']}\n"
+            f"   Deadline: {datetime.strptime(task["deadline"], "%Y-%m-%d").strftime("%b %d, %Y") if task["deadline"] else "Not Specified"}"
+            f"   Priority: {task['priority']}\n"
         )
 
     ambiguities = result["confidence"].get("ambiguities", [])
