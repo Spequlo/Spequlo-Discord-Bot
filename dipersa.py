@@ -7,6 +7,7 @@ from discord import app_commands
 import logging 
 from dotenv import load_dotenv
 import os
+import json
 from server import *
 from help import *
 from ai import *
@@ -315,8 +316,9 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
     )
 
 @bot.tree.command(name="summarize", description="Summarize recent messages", guild=ServerID)
-async def summarize(interaction: discord.Interaction, timeframe: str = "30m"):
+async def summarize(interaction: discord.Interaction, timeframe: str = "30m", context: str = ""):
     await interaction.response.defer()
+    user = interaction.user
     channel = interaction.channel #Currently uses interaction.channel to get the current channel, later need to add ability to select channel
     
     try:
@@ -327,7 +329,7 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m"):
     
     messages = []
 
-    async for msg in interaction.channel.history(after=cutoff, limit=1000): 
+    async for msg in channel.history(after=cutoff, limit=1000): 
         if msg.author.bot:
             continue
 
@@ -344,29 +346,52 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m"):
 
     messages.reverse()
     transcript = "\n".join(messages)
-    summary = summarizeC(transcript[-12000:])
 
     try:
-        summary = summarizeC(transcript[-12000:])
+        result = summarizeTranscript(transcript[-12000:], context)
     except Exception as e:
         print(e)
-        summary = "Failed to generate summary."
+        result = "Failed to generate summary."
 
-    discussion_summary[(interaction.user.id, interaction.channel.id)] = {
+    cache_key = (user.id, channel.id)
+    discussion_summary[cache_key] = {
         "transcript": transcript,
-        "summary": summary
+        "summary": result["summary"],
+        "tasks": result["tasks"],
+        "participants": result.get("participants", []),
+        "confidence": result.get("confidence", {})
     }
 
-    print(discussion_summary)
-
-    await interaction.followup.send(summary)
+    await interaction.followup.send(formatSummary(result))
 
 @bot.tree.command(name="revisesummary", description="Regenerate the created summary", guild=ServerID)
-async def reviseSummary(interaction: discord.Interaction, feedback: str = ""):
+async def reviseSummary(interaction: discord.Interaction, feedback: str):
     await interaction.response.defer()
-    print(discussion_summary)
-    await interaction.followup.send("revised")
+    user = interaction.user
+    channel = interaction.channel
 
+    data = discussion_summary.get((user.id, channel.id))
+
+    if not data:
+        await interaction.followup.send("No summary found. Run `/summarize` first")
+        return
+
+    transcript = data["transcript"]
+    old_summary = data["summary"]
+
+    try:
+        new_summary = regenerateSummary(old_summary, transcript[-12000:], feedback)
+    except Exception as e:
+        print(e)
+        new_summary = "Failed to generate summary."
+
+    await interaction.followup.send(formatSummary(new_summary))
+
+# @bot.tree.command(name="createtasks", description="Create tasks from a discussion summary", guild=ServerID)
+# async def createTasks(interaction: discord.Interaction):
+#     await interaction.response.defer()
+
+#     await interaction.followup.send(new_summary)
 
 
 #     await sendLongMessage(interaction, summary)
