@@ -1,6 +1,7 @@
 import requests
-from server import *
 import time
+from server import *
+from datetime import datetime, timedelta, timezone
 
 task_cache = {}
 CACHE_TTL = 60
@@ -149,3 +150,51 @@ def getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""
 
 def invalidateTaskCache(user_id: int):
     task_cache.pop(user_id, None)
+
+def parseTimeframe(timeframe: str):
+    value = int(timeframe[:-1])
+    unit = timeframe[-1].lower()
+
+    if unit == "s":
+        return datetime.now(timezone.utc) - timedelta(seconds=value)
+    if unit == "m":
+        return datetime.now(timezone.utc) - timedelta(minutes=value)
+    if unit == "h":
+        return datetime.now(timezone.utc) - timedelta(hours=value)
+    if unit == "d":
+        return datetime.now(timezone.utc) - timedelta(days=value)
+    if unit == "w":
+        return datetime.now(timezone.utc) - timedelta(weeks=value)
+
+    raise ValueError("Invalid timeframe")
+
+def formatSummary(result: dict) -> str:
+    participants = "\n".join(f"• {p}" for p in result["participants"])
+
+    tasks = ""
+
+    for i, task in enumerate(result["tasks"], start=1):
+        tasks += (
+            f"\n{i}. {task['name']}\n"
+            f"   Assigned: <@{task['assignee_discord_id']}>\n"
+            f"   Details: {task['description']}\n"
+            f"   Deadline: {datetime.strptime(task["deadline"], "%Y-%m-%d").strftime("%b %d, %Y") if task["deadline"] else "Not Specified"}"
+            f"   Priority: {task['priority']}\n"
+        )
+
+    ambiguities = result["confidence"].get("ambiguities", [])
+    ambiguity_text = "\n".join(f"• {item}" for item in ambiguities) if ambiguities else "None"
+
+    return (
+        f"**Discussion Summary**\n\n"
+        f"**Participants**\n"
+        f"{participants}\n\n"
+        f"**Summary**\n"
+        f"{result['summary']}\n\n"
+        f"**Action Items**\n"
+        f"{tasks if tasks else 'No action items found.'}\n\n"
+        f"**Confidence**: {result['confidence']['owner_confidence']}\n\n"
+        f"**Ambiguities**\n"
+        f"{ambiguity_text}"
+    )
+
