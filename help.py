@@ -1,6 +1,7 @@
 import requests
-from server import *
 import time
+from server import *
+from datetime import datetime, timedelta, timezone
 
 task_cache = {}
 CACHE_TTL = 60
@@ -149,3 +150,21 @@ def getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""
 
 def invalidateTaskCache(user_id: int):
     task_cache.pop(user_id, None)
+
+def parseTimeframe(timeframe: str):
+    value = int(timeframe[:-1])
+    unit = timeframe[-1].lower()
+
+    if unit == "s":
+        return datetime.now(timezone.utc) - timedelta(seconds=value)
+    if unit == "m":
+        return datetime.now(timezone.utc) - timedelta(minutes=value)
+    if unit == "h":
+        return datetime.now(timezone.utc) - timedelta(hours=value)
+    if unit == "d":
+        return datetime.now(timezone.utc) - timedelta(days=value)
+    if unit == "w":
+        return datetime.now(timezone.utc) - timedelta(weeks=value)
+
+    raise ValueError("Invalid timeframe")
+

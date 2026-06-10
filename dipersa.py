@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import os
 from server import *
 from help import *
+from ai import *
 
 load_dotenv()
 
@@ -33,7 +34,7 @@ async def on_ready():
     try:
         await bot.tree.sync(guild=ServerID)
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-        channel = await bot.fetch_channel(getChannel("commands"))
+        channel = await bot.fetch_channel(getChannel("commands_test"))
         if channel:
             await channel.send(embed=embed)
         print("Ready!!!")
@@ -311,4 +312,67 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
         f"**Task:** {task['task_name']}\n"
         f"**New status:** {new_status}"
     )
+
+@bot.tree.command(name="read", description="Summarize recent messages", guild=ServerID)
+async def summarize(interaction: discord.Interaction, timeframe: str = "1h"):
+    await interaction.response.defer()
+    channel = interaction.channel #Currently uses interaction.channel to get the current channel, later need to add ability to select channel
+    
+    try:
+        cutoff = parseTimeframe(timeframe)
+    except ValueError:
+        await interaction.followup.send("Invalid timeframe. Use this format: 30m, 2h, 1d")
+        return
+    
+    messages = []
+
+    async for msg in interaction.channel.history(after=cutoff, limit=1000): 
+        if msg.author.bot:
+            continue
+
+        content = msg.content.strip()
+
+        if not content:
+            continue
+
+        messages.append(f"{msg.created_at.strftime('%H:%M')} - {msg.author.id}: {content}")
+
+    messages.reverse()
+    transcript = "\n".join(messages)
+
+    if messages:
+        await interaction.followup.send(transcript)
+    else:
+        await interaction.followup.send(f"No messages found in the last {timeframe}")
+
+
+
+#     if not messages:
+#         await interaction.followup.send(f"No messages found in the last {timeframe}.")
+#         return
+
+#     messages.reverse()
+#     transcript = "\n".join(messages)
+#     summary = summarizeConversation(transcript[-12000:])
+
+#     await sendLongMessage(interaction, summary)
+
+# async def sendLongMessage(interaction, text):
+#     chunks = []
+
+#     while len(text) > 1900:
+#         split = text.rfind("\n", 0, 1900)
+
+#         if split == -1:
+#             split = 1900
+
+#         chunks.append(text[:split])
+#         text = text[split:]
+
+#     chunks.append(text)
+
+#     for chunk in chunks:
+#         await interaction.followup.send(chunk)
+
+
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
