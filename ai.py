@@ -1,39 +1,29 @@
-from openai import OpenAI
+from google import genai
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
-)
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-def summarizeConversation(transcript: str):
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {
-                "role": "system",
-                "content":
-                """
-                You are a project management assistant.
+def summarizeC(transcript: str):
+    prompt = f"""
+    You are a project management assistant.
 
-                Summarize the discussion.
+    Summarize the discussion.
 
-                Include:
-                - Main topics
-                - Decisions made
-                - Open questions
-                - Action items
+    Include:
+    - The people involved in the discussion
 
-                Keep it concise.
-                """
-            },
-            {
-                "role": "user",
-                "content": transcript
-            }
-        ]
+    Keep it concise.
+
+    Transcript:
+    {transcript}
+    """
+    
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt
     )
 
-    return response.choices[0].message.content
+    return response.text

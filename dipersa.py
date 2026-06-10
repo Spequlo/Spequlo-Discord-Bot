@@ -335,24 +335,19 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "1h"):
         if not content:
             continue
 
-        messages.append(f"{msg.created_at.strftime('%H:%M')} - {msg.author.id}: {content}")
+        messages.append(f"{msg.created_at.strftime('%H:%M')} - {msg.author.display_name}: {content}")
+        
+    if not messages:
+        await interaction.followup.send(f"No messages found in the last {timeframe}")
+        return
 
     messages.reverse()
     transcript = "\n".join(messages)
+    summary = summarizeC(transcript[-12000:])
 
-    if messages:
-        await interaction.followup.send(transcript)
-    else:
-        await interaction.followup.send(f"No messages found in the last {timeframe}")
+    await interaction.followup.send(summary)
 
 
-
-#     if not messages:
-#         await interaction.followup.send(f"No messages found in the last {timeframe}.")
-#         return
-
-#     messages.reverse()
-#     transcript = "\n".join(messages)
 #     summary = summarizeConversation(transcript[-12000:])
 
 #     await sendLongMessage(interaction, summary)
