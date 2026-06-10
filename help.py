@@ -193,7 +193,7 @@ def formatSummary(result: dict) -> str:
         f"{result['summary']}\n\n"
         f"**Action Items**\n"
         f"{tasks if tasks else 'No action items found.'}\n\n"
-        f"**Confidence: {result['confidence']['owner_confidence']}\n\n"
+        f"**Confidence**: {result['confidence']['owner_confidence']}\n\n"
         f"**Ambiguities**\n"
         f"{ambiguity_text}"
     )

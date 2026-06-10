@@ -369,8 +369,9 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
     await interaction.response.defer()
     user = interaction.user
     channel = interaction.channel
+    cache_key = (user.id, channel.id)
 
-    data = discussion_summary.get((user.id, channel.id))
+    data = discussion_summary.get(cache_key)
 
     if not data:
         await interaction.followup.send("No summary found. Run `/summarize` first")
@@ -385,13 +386,54 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
         print(e)
         new_summary = "Failed to generate summary."
 
+    discussion_summary[cache_key] = {
+        "transcript": transcript,
+        "summary": new_summary["summary"],
+        "tasks": new_summary["tasks"],
+        "participants": new_summary.get("participants", []),
+        "confidence": new_summary.get("confidence", {})
+    }
+
     await interaction.followup.send(formatSummary(new_summary))
 
-# @bot.tree.command(name="createtasks", description="Create tasks from a discussion summary", guild=ServerID)
-# async def createTasks(interaction: discord.Interaction):
-#     await interaction.response.defer()
+@bot.tree.command(name="createtasks", description="Create tasks from a discussion summary", guild=ServerID)
+@app_commands.choices(
+    team=[    
+        app_commands.Choice(name="Mobile App", value="mobile_app"),
+        app_commands.Choice(name="Integration", value="integration"),
+        app_commands.Choice(name="Internal Tools", value="internal_tools"),
+        app_commands.Choice(name="Infrastructure", value="infrastructure"),
+        app_commands.Choice(name="Website", value="website")
+    ],
+    list=[
+        app_commands.Choice(name="Backlog", value="backlog"),
+        app_commands.Choice(name="Current Sprint", value="current_sprint"),
+        app_commands.Choice(name="Bugs", value="bugs")
+    ]
+)
+async def createTasks(interaction: discord.Interaction, team: str, list: str):
+    await interaction.response.defer()
+    user = interaction.user
+    channel = interaction.channel
+    session = discussion_summary[(user.id, channel.id)]
 
-#     await interaction.followup.send(new_summary)
+    if team == "website": 
+        list_id = int(getListId("website", "list"))
+    else:
+        list_id = int(getListId(team, list))
+
+    for task in session["tasks"]:
+
+        assignee_name = task["assignee_name"]
+
+        discord_member = discord.utils.get(interaction.guild.members, display_name=assignee_name)
+
+        if not discord_member:
+            continue
+
+        createTask(CLICKUP_TOKEN, discord_member.id, task["name"], list_id, task["priority"], task["description"])
+
+    await interaction.followup.send("Tasks Assigned Successfully")
 
 
 #     await sendLongMessage(interaction, summary)
