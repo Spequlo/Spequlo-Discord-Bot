@@ -27,6 +27,7 @@ ServerID = discord.Object(id=int(DISCORD__SERVER_ID))
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 pending_status_changes = {}
+discussion_summary = {}
 
 ##  Events
 @bot.event
@@ -313,8 +314,8 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
         f"**New status:** {new_status}"
     )
 
-@bot.tree.command(name="read", description="Summarize recent messages", guild=ServerID)
-async def summarize(interaction: discord.Interaction, timeframe: str = "1h"):
+@bot.tree.command(name="summarize", description="Summarize recent messages", guild=ServerID)
+async def summarize(interaction: discord.Interaction, timeframe: str = "30m"):
     await interaction.response.defer()
     channel = interaction.channel #Currently uses interaction.channel to get the current channel, later need to add ability to select channel
     
@@ -345,10 +346,28 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "1h"):
     transcript = "\n".join(messages)
     summary = summarizeC(transcript[-12000:])
 
+    try:
+        summary = summarizeC(transcript[-12000:])
+    except Exception as e:
+        print(e)
+        summary = "Failed to generate summary."
+
+    discussion_summary[(interaction.user.id, interaction.channel.id)] = {
+        "transcript": transcript,
+        "summary": summary
+    }
+
+    print(discussion_summary)
+
     await interaction.followup.send(summary)
 
+@bot.tree.command(name="revisesummary", description="Regenerate the created summary", guild=ServerID)
+async def reviseSummary(interaction: discord.Interaction, feedback: str = ""):
+    await interaction.response.defer()
+    print(discussion_summary)
+    await interaction.followup.send("revised")
 
-#     summary = summarizeConversation(transcript[-12000:])
+
 
 #     await sendLongMessage(interaction, summary)
 

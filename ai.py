@@ -10,20 +10,32 @@ def summarizeC(transcript: str):
     prompt = f"""
     You are a project management assistant.
 
+    Summarize the Discord conversation below.
+
     Summarize the discussion.
 
-    Include:
-    - The people involved in the discussion
+    Output format:
 
-    Keep it concise.
+    Participants:
+    - Name
+
+    Summary:
+    - Main discussion points
+
+    Action Items:
+    - Task name
+    - Task details (if known)
+    - Responsible person (if known)
+
+    Confidence:
+    - How confident are you that the assigned owners are correct?
+    - What information was ambiguous?
+    - Did you find any action items?
 
     Transcript:
     {transcript}
     """
-    
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt
-    )
+
+    response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
 
     return response.text
