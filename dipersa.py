@@ -11,7 +11,6 @@ import os
 from server import *
 from help import *
 from ai import *
-from google.genai.errors import ClientError
 
 load_dotenv()
 
@@ -344,14 +343,21 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
     result = None
     try:
         result = summarizeTranscript(transcript[-12000:], context)
-    except ClientError as e:
-        if "RESOURCE_EXHAUSTED" in str(e):
+    except RuntimeError as e:
+        if str(e) == "RATE_LIMIT":
+            await interaction.followup.send("Gemini is currently rate-limiting requests. Please try again in a moment.")
+            return
+        elif str(e) == "SERVICE_UNAVAILABLE":
+            await interaction.followup.send("Gemini is temporarily unavailable. Please try again later.")
+            return
+        elif str(e) == "QUOTA_EXCEEDED":
             await interaction.followup.send("Gemini free-tier quota exhausted. Please try again later.")
             return
     except Exception as e:
         print(e)
         await interaction.followup.send("Failed to generate summary.")
         return
+    
     if result is None:
         await interaction.followup.send("Failed to generate summary.")
         return
@@ -391,14 +397,21 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
 
     try:
         new_summary = regenerateSummary(old_summary, transcript[-12000:], feedback)
-    except ClientError as e:
-        if "RESOURCE_EXHAUSTED" in str(e):
+    except RuntimeError as e:
+        if str(e) == "RATE_LIMIT":
+            await interaction.followup.send("Gemini is currently rate-limiting requests. Please try again in a moment.")
+            return
+        elif str(e) == "SERVICE_UNAVAILABLE":
+            await interaction.followup.send("Gemini is temporarily unavailable. Please try again later.")
+            return
+        elif str(e) == "QUOTA_EXCEEDED":
             await interaction.followup.send("Gemini free-tier quota exhausted. Please try again later.")
             return
     except Exception as e:
         print(e)
         await interaction.followup.send("Failed to generate summary.")
         return
+    
     if new_summary is None:
         await interaction.followup.send("Failed to generate summary.")
         return
