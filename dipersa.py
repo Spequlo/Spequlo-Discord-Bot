@@ -152,6 +152,8 @@ async def assignManual(interaction: discord.Interaction, user: discord.Member, t
 
     code = createTask(CLICKUP_TOKEN, user.id, task, list_id, int(priority), desc)
 
+    #Change all these errors to be excpetions
+
     if code == 401:
         embed = discord.Embed(title="I couldn't find the list or space", description=f"{user.mention}. It looks like the list you wanted doesn't exist. Please contact the ClickUp Workspace Admin", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
@@ -303,8 +305,16 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
 async def summarize(interaction: discord.Interaction, timeframe: str = "30m", context: str = ""):
     await interaction.response.defer()
     user = interaction.user
-    channel = interaction.channel #Currently uses interaction.channel to get the current channel, later need to add ability to select channel
+    channel = interaction.channel
+
+    if channel is None:
+        await interaction.followup.send("No channel found.")
+        return
     
+    if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.DMChannel)):
+        await interaction.followup.send("This command can only be used in a text channel.")
+        return
+
     try:
         cutoff = parseTimeframe(timeframe)
     except ValueError:
@@ -331,6 +341,7 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
     messages.reverse()
     transcript = "\n".join(messages)
 
+    result = None
     try:
         result = summarizeTranscript(transcript[-12000:], context)
     except ClientError as e:
@@ -339,6 +350,9 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
             return
     except Exception as e:
         print(e)
+        await interaction.followup.send("Failed to generate summary.")
+        return
+    if result is None:
         await interaction.followup.send("Failed to generate summary.")
         return
         
@@ -359,8 +373,11 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
     await interaction.response.defer()
     user = interaction.user
     channel = interaction.channel
+    if channel is None:
+        await interaction.followup.send("No channel found.")
+        return
+        
     cache_key = (user.id, channel.id)
-
     data = discussion_summary.get(cache_key)
 
     if not data:
@@ -369,6 +386,8 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
 
     transcript = data["transcript"]
     old_summary = data["summary"]
+
+    new_summary = None
 
     try:
         new_summary = regenerateSummary(old_summary, transcript[-12000:], feedback)
@@ -380,7 +399,10 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
         print(e)
         await interaction.followup.send("Failed to generate summary.")
         return
-
+    if new_summary is None:
+        await interaction.followup.send("Failed to generate summary.")
+        return
+    
     discussion_summary[cache_key] = {
         "transcript": transcript,
         "summary": new_summary["summary"],
@@ -410,6 +432,10 @@ async def createTasks(interaction: discord.Interaction, team: str, list: str):
     await interaction.response.defer()
     user = interaction.user
     channel = interaction.channel
+    if channel is None:
+        await interaction.followup.send("No channel found.")
+        return
+    
     session = discussion_summary.get((user.id, channel.id))
 
     if not session:
@@ -419,10 +445,15 @@ async def createTasks(interaction: discord.Interaction, team: str, list: str):
     created = 0
     failed = []
 
-    if team == "website": 
-        list_id = int(getListId("website", "list"))
+    if team == "website":
+        list_value = getListId("website", "list")
     else:
-        list_id = int(getListId(team, list))
+        list_value = getListId(team, list)
+
+    if list_value is None:
+        raise ValueError(f"List ID not found for {team}")
+
+    list_id = int(list_value)
 
     if list_id == 401:
         await interaction.followup.send("Could not find the specified list.")
