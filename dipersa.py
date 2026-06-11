@@ -17,15 +17,24 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 CLICKUP_TOKEN = os.getenv('CLICKUP_TOKEN')
-DISCORD__SERVER_ID = os.getenv('DISCORD_SERVER_ID')
+DISCORD_SERVER_ID = os.getenv('DISCORD_SERVER_ID')
 CLICKUP_WORKSPACE_ID = os.getenv('CLICKUP_WORKSPACE_ID')
+
+if DISCORD_TOKEN is None:
+    raise ValueError("DISCORD_TOKEN is not set")
+if CLICKUP_TOKEN is None:
+    raise ValueError("CLICKUP_TOKEN is not set")
+if DISCORD_SERVER_ID is None:
+    raise ValueError("DISCORD_SERVER_ID is not set")
+if CLICKUP_WORKSPACE_ID is None:
+    raise ValueError("CLICKUP_WORKSPACE_ID is not set")
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-ServerID = discord.Object(id=int(DISCORD__SERVER_ID))
+ServerID = discord.Object(id=int(DISCORD_SERVER_ID))
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 pending_status_changes = {}
@@ -36,10 +45,24 @@ discussion_summary = {}
 async def on_ready():
     try:
         await bot.tree.sync(guild=ServerID)
+
+        if bot.user is None:
+            return
+        
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-        channel = await bot.fetch_channel(getChannel("commands_test"))
+        channel_id = getChannel("commands_test")
+        
+        if channel_id is None:
+            raise ValueError("commands_test channel not configured")
+        
+        channel = await bot.fetch_channel(channel_id)
+
+        if not isinstance(channel, discord.TextChannel):
+            raise TypeError("commands_test is not a text channel")
+
         if channel:
             await channel.send(embed=embed)
+        
         print("Ready!!!")
     except Exception as e:
         print(f"Startup Error: {e}")
