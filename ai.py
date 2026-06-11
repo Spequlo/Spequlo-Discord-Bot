@@ -1,7 +1,6 @@
 from google import genai
 import os
 import json
-import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -65,15 +64,25 @@ def summarizeTranscript(transcript: str, context: str):
     {transcript}
     """
 
-    retries = 3
-    last_error = None
-    for attempt in range(retries):
-        try:
-            response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-            return json.loads(response.text)
-        except Exception as e:        
-            last_error = e
-        raise last_error
+    try:
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        text = response.text
+        if text is None:
+            raise ValueError("Gemini returned an empty response")   
+        return json.loads(text)
+    except Exception as e:        
+        error_text = str(e)
+
+        if "429" in error_text:
+            raise RuntimeError("RATE_LIMIT")
+
+        elif "503" in error_text:
+            raise RuntimeError("SERVICE_UNAVAILABLE")
+
+        elif "RESOURCE_EXHAUSTED" in error_text:
+            raise RuntimeError("QUOTA_EXCEEDED")
+
+        raise
 
 def regenerateSummary(summary: str, transcript: str, feedback: str):
     prompt = f"""
@@ -131,16 +140,25 @@ def regenerateSummary(summary: str, transcript: str, feedback: str):
     }}
     """
 
-    retries = 3
-    last_error = None
-    for attempt in range(retries):
-        try:
-            response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-            return json.loads(response.text)
-        except Exception as e:        
-            last_error = e
-        raise last_error
+    try:
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        text = response.text
+        if text is None:
+            raise ValueError("Gemini returned an empty response")   
+        return json.loads(text)
+    except Exception as e:        
+        error_text = str(e)
 
+        if "429" in error_text:
+            raise RuntimeError("RATE_LIMIT")
+
+        elif "503" in error_text:
+            raise RuntimeError("SERVICE_UNAVAILABLE")
+
+        elif "RESOURCE_EXHAUSTED" in error_text:
+            raise RuntimeError("QUOTA_EXCEEDED")
+
+        raise
 
 
 

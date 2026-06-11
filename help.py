@@ -1,6 +1,7 @@
 import requests
 import time
 from server import *
+from typing import Any
 from datetime import datetime, timedelta, timezone
 
 task_cache = {}
@@ -51,8 +52,8 @@ def getTasks(TOKEN: str, userId: int, team: str, list: str):
 
     member = getMember(userId)
     if not member:
-        return 402
-
+        raise ValueError("No member found. Ensure you have linked your ClickUp account.")
+    
     headers = {"Authorization": TOKEN}
     params = {"assignees[]": [int(member)]}
     allTasks = []
@@ -67,20 +68,19 @@ def getTasks(TOKEN: str, userId: int, team: str, list: str):
         for lst in lists:
             listId = getListId(team, lst)
             if not listId:
-                print(f"No list ID found for {team}/{list}")
-                return "NO-ID"
+                raise ValueError(f"No list ID found for {team}/{list}")
             url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
             response = requests.get(url, headers=headers, params=params)
 
             if response.status_code != 200:
                 print(f"Error fetching {team}/{list}: {response.status_code} - {response.text}")
-                return 401
+                raise PermissionError(f"ClickUp request failed: {response.status_code}")
 
             data = response.json()
             if "tasks" in data:
                 allTasks.extend(data["tasks"])
     if not allTasks:
-        return "EMPTY"
+        raise ValueError("You have no assigned tasks.")
 
     return allTasks
 
@@ -127,7 +127,7 @@ def updateTaskStatus(TOKEN: str, TASK_ID: str, new_status: str):
     response = requests.put(url, headers=headers, json=payload)
 
     if response.status_code != 200:
-        return 401
+        raise PermissionError(f"Failed to update the task status. Please contact a dev. {response.status_code}")
     
     return 200
 
@@ -168,7 +168,7 @@ def parseTimeframe(timeframe: str):
 
     raise ValueError("Invalid timeframe")
 
-def formatSummary(result: dict) -> str:
+def formatSummary(result: dict):
     participants = "\n".join(f"• {p}" for p in result["participants"])
 
     tasks = ""

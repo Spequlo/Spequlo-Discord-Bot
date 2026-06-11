@@ -11,21 +11,34 @@ import os
 from server import *
 from help import *
 from ai import *
-from google.genai.errors import ClientError
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-CLICKUP_TOKEN = os.getenv('CLICKUP_TOKEN')
-DISCORD__SERVER_ID = os.getenv('DISCORD_SERVER_ID')
-CLICKUP_WORKSPACE_ID = os.getenv('CLICKUP_WORKSPACE_ID')
+if DISCORD_TOKEN is None:
+    raise ValueError("DISCORD_TOKEN is not set")
+
+CLICKUP_TOKEN_STR = os.getenv("CLICKUP_TOKEN")
+if CLICKUP_TOKEN_STR is None:
+    raise ValueError("CLICKUP_TOKEN not set")
+CLICKUP_TOKEN = str(CLICKUP_TOKEN_STR)
+
+DISCORD_SERVER_ID = os.getenv('DISCORD_SERVER_ID')
+if DISCORD_SERVER_ID is None:
+    raise ValueError("DISCORD_SERVER_ID is not set")
+
+WORKSPACE_ID_STR = os.getenv('CLICKUP_WORKSPACE_ID')
+if WORKSPACE_ID_STR is None:
+    raise ValueError("CLICKUP_WORKSPACE_ID is not set")
+CLICKUP_WORKSPACE_ID = int(WORKSPACE_ID_STR)
+
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-ServerID = discord.Object(id=int(DISCORD__SERVER_ID))
+ServerID = discord.Object(id=int(DISCORD_SERVER_ID))
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 pending_status_changes = {}
@@ -36,10 +49,24 @@ discussion_summary = {}
 async def on_ready():
     try:
         await bot.tree.sync(guild=ServerID)
+
+        if bot.user is None:
+            return
+        
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-        channel = await bot.fetch_channel(getChannel("commands"))
+        channel_id = getChannel("commands_test")
+        
+        if channel_id is None:
+            raise ValueError("commands_test channel not configured")
+        
+        channel = await bot.fetch_channel(channel_id)
+
+        if not isinstance(channel, discord.TextChannel):
+            raise TypeError("commands_test is not a text channel")
+
         if channel:
             await channel.send(embed=embed)
+        
         print("Ready!!!")
     except Exception as e:
         print(f"Startup Error: {e}")
@@ -55,18 +82,32 @@ async def on_message(message):
         await message.channel.send('very nice')
 
 # Commands
+@bot.tree.command(name="help", description="Display all Bot Comands", guild=ServerID)
+async def help(interaction: discord.Interaction):
+    embed = discord.Embed(title="Dipersa Commands and Info", description="Here are all the commands I have and their descriptions.", color=discord.Color.blue())
+    embed.add_field(name="/signup", value="Connect your Discord user to your CLickUp user in the Spequlo Workspace", inline=False)
+    embed.add_field( name="/assign-manual", value="Manually assign a task to a user on ClickUp.", inline=False)
+    embed.add_field(name="/view-my-tasks", value="Get a list of all your tasks and their progress.", inline=False)
+    embed.add_field(name="/change-status", value="Change the status of one of your tasks.", inline=False)
+    embed.add_field(name="/confirm-status", value="Confirm the new status for a selected task.", inline=False)
+    embed.add_field(name="/summarize", value="Summarize and create tasks from discord conversations over a timeframe using AI.", inline=False)
+    embed.add_field(name="/revise-summary", value="Regenerate the created summary and tasks using user feedback.", inline=False)
+    embed.add_field(name="/create-tasks", value="Confirm the creation of the AI genrated tasks on ClickUp.", inline=False)
+    embed.add_field(name="/help", value="Display all the bot commands", inline=False)
+    embed.set_footer(text="Thank you for using Dipersa.")   
+
+    await interaction.response.send_message(embed=embed)
+
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
     user = interaction.user
-    clickup_member_entry = {str(user.id): int(id)}
-
     member = getMember(user.id)
 
     if member:
         embed = discord.Embed(title=f"You already signed up.", description="You're already a member on clickup", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
         return
-
+    
     if validateClickUp(CLICKUP_WORKSPACE_ID, CLICKUP_TOKEN, id):
         addMember(user.id, id)
         embed = discord.Embed(title="You are signed into ClickUp.", description=f"{user.mention}, you can now assign and view your assigned tasks", color=discord.Color.green())       
@@ -76,7 +117,7 @@ async def signUp(interaction: discord.Interaction, id: int):
     embed = discord.Embed(title="I couldn't find you on ClickUp", description=f"{user.mention}, Be sure you used the right ClickUp ID!", color=discord.Color.red())       
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="assign", description="Assign a user a task on ClickUp", guild=ServerID)
+@bot.tree.command(name="assign-manual", description="Manually assign a task to a user on ClickUp", guild=ServerID)
 @app_commands.choices(
     team=[    
         app_commands.Choice(name="Mobile App", value="mobile_app"),
@@ -97,13 +138,20 @@ async def signUp(interaction: discord.Interaction, id: int):
         app_commands.Choice(name="Low", value="4")
     ]
 )
-async def assign(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
-    if team == "website": 
-        list_id = int(getListId("website", "list"))
+async def assignManual(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
+    if team == "website":
+        list_value = getListId("website", "list")
     else:
-        list_id = int(getListId(team, list))
-    
+        list_value = getListId(team, list)
+
+    if list_value is None:
+        raise ValueError(f"List ID not found for {team}")
+
+    list_id = int(list_value)
+
     code = createTask(CLICKUP_TOKEN, user.id, task, list_id, int(priority), desc)
+
+    #Change all these errors to be excpetions
 
     if code == 401:
         embed = discord.Embed(title="I couldn't find the list or space", description=f"{user.mention}. It looks like the list you wanted doesn't exist. Please contact the ClickUp Workspace Admin", color=discord.Color.red())
@@ -124,7 +172,7 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="viewmytasks", description="Assign a user a task on ClickUp", guild=ServerID)
+@bot.tree.command(name="view-my-tasks", description="Get a list of all your tasks and their progress", guild=ServerID)
 @app_commands.choices(
     team=[    
         app_commands.Choice(name="Mobile App", value="mobile_app"),
@@ -144,26 +192,10 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     user = interaction.user
 
     my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
-
-
-    if my_tasks == 401:
-        embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
-        await interaction.followup.send(embed=embed)
-        return
-
-    if my_tasks == 402:
-        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
-        await interaction.followup.send(embed=embed)
-        return
-    
-    if my_tasks == "EMPTY":
-        embed = discord.Embed(title=f"No Tasks Found", description=f"There are no tasks assigned to you", color=discord.Color.red())
-        await interaction.followup.send(embed=embed)
-        return
-    
-    if my_tasks == "NO-ID":
-        embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.red())
-        await interaction.followup.send(embed=embed)
+    try:
+        my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
+    except Exception as e:
+        await interaction.followup.send(str(e))
         return
     
     messages = []
@@ -197,17 +229,17 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     for message in messages:
         await interaction.followup.send(message)   
 
-@bot.tree.command(name="changestatus", description="Change the status of one of your tasks", guild=ServerID)
+@bot.tree.command(name="change-status", description="Change the status of one of your tasks", guild=ServerID)
 async def changeStatus(interaction: discord.Interaction, task_number: int):
     await interaction.response.defer()
     user = interaction.user
 
-    my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id)
-
-    if my_tasks in [401, 402, "EMPTY", "NO-ID"]:
-        await interaction.followup.send("Couldn't retrieve your tasks. Make sure you're signed up and have tasks assigned to you.")
+    try:
+        my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id)
+    except Exception as e:
+        await interaction.followup.send(str(e))
         return
-
+    
     if task_number < 1 or task_number > len(my_tasks):
         await interaction.followup.send(f" Invalid task number. You have {len(my_tasks)} tasks — pick a number between 1 and {len(my_tasks)}.")
         return
@@ -233,7 +265,7 @@ async def changeStatus(interaction: discord.Interaction, task_number: int):
         f"\nUse `/confirmstatus <number>` to confirm."
     )
 
-@bot.tree.command(name="confirmstatus", description="Confirm the new status for your task", guild=ServerID)
+@bot.tree.command(name="confirm-status", description="Confirm the new status for your task", guild=ServerID)
 async def confirmStatus(interaction: discord.Interaction, status_number: int):
     await interaction.response.defer()
     user = interaction.user
@@ -252,12 +284,12 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
 
     new_status = statuses[status_number - 1]
 
-    result = updateTaskStatus(CLICKUP_TOKEN, task["task_id"], new_status)
-
-    if result == 401:
-        await interaction.followup.send("Failed to update the task status. Please contact a dev.")
+    try:
+        result = updateTaskStatus(CLICKUP_TOKEN, task["task_id"], new_status)
+    except Exception as e:
+        await interaction.followup.send(str(e))
         return
-
+    
     del pending_status_changes[user.id]
     invalidateTaskCache(user.id)
 
@@ -272,8 +304,16 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
 async def summarize(interaction: discord.Interaction, timeframe: str = "30m", context: str = ""):
     await interaction.response.defer()
     user = interaction.user
-    channel = interaction.channel #Currently uses interaction.channel to get the current channel, later need to add ability to select channel
+    channel = interaction.channel
+
+    if channel is None:
+        await interaction.followup.send("No channel found.")
+        return
     
+    if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.DMChannel)):
+        await interaction.followup.send("This command can only be used in a text channel.")
+        return
+
     try:
         cutoff = parseTimeframe(timeframe)
     except ValueError:
@@ -300,14 +340,25 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
     messages.reverse()
     transcript = "\n".join(messages)
 
+    result = None
     try:
         result = summarizeTranscript(transcript[-12000:], context)
-    except ClientError as e:
-        if "RESOURCE_EXHAUSTED" in str(e):
+    except RuntimeError as e:
+        if str(e) == "RATE_LIMIT":
+            await interaction.followup.send("Gemini is currently rate-limiting requests. Please try again in a moment.")
+            return
+        elif str(e) == "SERVICE_UNAVAILABLE":
+            await interaction.followup.send("Gemini is temporarily unavailable. Please try again later.")
+            return
+        elif str(e) == "QUOTA_EXCEEDED":
             await interaction.followup.send("Gemini free-tier quota exhausted. Please try again later.")
             return
     except Exception as e:
         print(e)
+        await interaction.followup.send("Failed to generate summary.")
+        return
+    
+    if result is None:
         await interaction.followup.send("Failed to generate summary.")
         return
         
@@ -322,14 +373,17 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
 
     await interaction.followup.send(formatSummary(result))
 
-@bot.tree.command(name="revisesummary", description="Regenerate the created summary", guild=ServerID)
+@bot.tree.command(name="revise-summary", description="Regenerate the created summary", guild=ServerID)
 @checks.cooldown(1, 15.0)
 async def reviseSummary(interaction: discord.Interaction, feedback: str):
     await interaction.response.defer()
     user = interaction.user
     channel = interaction.channel
+    if channel is None:
+        await interaction.followup.send("No channel found.")
+        return
+        
     cache_key = (user.id, channel.id)
-
     data = discussion_summary.get(cache_key)
 
     if not data:
@@ -339,17 +393,29 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
     transcript = data["transcript"]
     old_summary = data["summary"]
 
+    new_summary = None
+
     try:
         new_summary = regenerateSummary(old_summary, transcript[-12000:], feedback)
-    except ClientError as e:
-        if "RESOURCE_EXHAUSTED" in str(e):
+    except RuntimeError as e:
+        if str(e) == "RATE_LIMIT":
+            await interaction.followup.send("Gemini is currently rate-limiting requests. Please try again in a moment.")
+            return
+        elif str(e) == "SERVICE_UNAVAILABLE":
+            await interaction.followup.send("Gemini is temporarily unavailable. Please try again later.")
+            return
+        elif str(e) == "QUOTA_EXCEEDED":
             await interaction.followup.send("Gemini free-tier quota exhausted. Please try again later.")
             return
     except Exception as e:
         print(e)
         await interaction.followup.send("Failed to generate summary.")
         return
-
+    
+    if new_summary is None:
+        await interaction.followup.send("Failed to generate summary.")
+        return
+    
     discussion_summary[cache_key] = {
         "transcript": transcript,
         "summary": new_summary["summary"],
@@ -360,7 +426,7 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
 
     await interaction.followup.send(formatSummary(new_summary))
 
-@bot.tree.command(name="createtasks", description="Create tasks from a discussion summary", guild=ServerID)
+@bot.tree.command(name="create-tasks", description="Create tasks from a discussion summary", guild=ServerID)
 @app_commands.choices(
     team=[    
         app_commands.Choice(name="Mobile App", value="mobile_app"),
@@ -379,6 +445,10 @@ async def createTasks(interaction: discord.Interaction, team: str, list: str):
     await interaction.response.defer()
     user = interaction.user
     channel = interaction.channel
+    if channel is None:
+        await interaction.followup.send("No channel found.")
+        return
+    
     session = discussion_summary.get((user.id, channel.id))
 
     if not session:
@@ -388,10 +458,15 @@ async def createTasks(interaction: discord.Interaction, team: str, list: str):
     created = 0
     failed = []
 
-    if team == "website": 
-        list_id = int(getListId("website", "list"))
+    if team == "website":
+        list_value = getListId("website", "list")
     else:
-        list_id = int(getListId(team, list))
+        list_value = getListId(team, list)
+
+    if list_value is None:
+        raise ValueError(f"List ID not found for {team}")
+
+    list_id = int(list_value)
 
     if list_id == 401:
         await interaction.followup.send("Could not find the specified list.")
