@@ -37,7 +37,7 @@ async def on_ready():
     try:
         await bot.tree.sync(guild=ServerID)
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-        channel = await bot.fetch_channel(getChannel("commands_test"))
+        channel = await bot.fetch_channel(getChannel("commands"))
         if channel:
             await channel.send(embed=embed)
         print("Ready!!!")
