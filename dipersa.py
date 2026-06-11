@@ -16,18 +16,23 @@ from google.genai.errors import ClientError
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-CLICKUP_TOKEN = os.getenv('CLICKUP_TOKEN')
-DISCORD_SERVER_ID = os.getenv('DISCORD_SERVER_ID')
-CLICKUP_WORKSPACE_ID = os.getenv('CLICKUP_WORKSPACE_ID')
-
 if DISCORD_TOKEN is None:
     raise ValueError("DISCORD_TOKEN is not set")
-if CLICKUP_TOKEN is None:
-    raise ValueError("CLICKUP_TOKEN is not set")
+
+CLICKUP_TOKEN_STR = os.getenv("CLICKUP_TOKEN")
+if CLICKUP_TOKEN_STR is None:
+    raise ValueError("CLICKUP_TOKEN not set")
+CLICKUP_TOKEN = str(CLICKUP_TOKEN_STR)
+
+DISCORD_SERVER_ID = os.getenv('DISCORD_SERVER_ID')
 if DISCORD_SERVER_ID is None:
     raise ValueError("DISCORD_SERVER_ID is not set")
-if CLICKUP_WORKSPACE_ID is None:
+
+WORKSPACE_ID_STR = os.getenv('CLICKUP_WORKSPACE_ID')
+if WORKSPACE_ID_STR is None:
     raise ValueError("CLICKUP_WORKSPACE_ID is not set")
+CLICKUP_WORKSPACE_ID = int(WORKSPACE_ID_STR)
+
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
@@ -94,19 +99,16 @@ async def help(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed)
 
-
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
     user = interaction.user
-    clickup_member_entry = {str(user.id): int(id)}
-
     member = getMember(user.id)
 
     if member:
         embed = discord.Embed(title=f"You already signed up.", description="You're already a member on clickup", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
         return
-
+    
     if validateClickUp(CLICKUP_WORKSPACE_ID, CLICKUP_TOKEN, id):
         addMember(user.id, id)
         embed = discord.Embed(title="You are signed into ClickUp.", description=f"{user.mention}, you can now assign and view your assigned tasks", color=discord.Color.green())       
@@ -138,11 +140,16 @@ async def signUp(interaction: discord.Interaction, id: int):
     ]
 )
 async def assignManual(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
-    if team == "website": 
-        list_id = int(getListId("website", "list"))
+    if team == "website":
+        list_value = getListId("website", "list")
     else:
-        list_id = int(getListId(team, list))
-    
+        list_value = getListId(team, list)
+
+    if list_value is None:
+        raise ValueError(f"List ID not found for {team}")
+
+    list_id = int(list_value)
+
     code = createTask(CLICKUP_TOKEN, user.id, task, list_id, int(priority), desc)
 
     if code == 401:
@@ -184,25 +191,10 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     user = interaction.user
 
     my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
-
-    if my_tasks == 401:
-        embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
-        await interaction.followup.send(embed=embed)
-        return
-
-    if my_tasks == 402:
-        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the /signup command.", color=discord.Color.red())
-        await interaction.followup.send(embed=embed)
-        return
-    
-    if my_tasks == "EMPTY":
-        embed = discord.Embed(title=f"No Tasks Found", description=f"There are no tasks assigned to you", color=discord.Color.red())
-        await interaction.followup.send(embed=embed)
-        return
-    
-    if my_tasks == "NO-ID":
-        embed = discord.Embed(title=f"No List Found", description=f"I couldn't find the list you were looking for. Please contact the CLickUp Admin", color=discord.Color.red())
-        await interaction.followup.send(embed=embed)
+    try:
+        my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
+    except Exception as e:
+        await interaction.followup.send(str(e))
         return
     
     messages = []
@@ -241,12 +233,12 @@ async def changeStatus(interaction: discord.Interaction, task_number: int):
     await interaction.response.defer()
     user = interaction.user
 
-    my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id)
-
-    if my_tasks in [401, 402, "EMPTY", "NO-ID"]:
-        await interaction.followup.send("Couldn't retrieve your tasks. Make sure you're signed up and have tasks assigned to you.")
+    try:
+        my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id)
+    except Exception as e:
+        await interaction.followup.send(str(e))
         return
-
+    
     if task_number < 1 or task_number > len(my_tasks):
         await interaction.followup.send(f" Invalid task number. You have {len(my_tasks)} tasks — pick a number between 1 and {len(my_tasks)}.")
         return
@@ -291,12 +283,12 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
 
     new_status = statuses[status_number - 1]
 
-    result = updateTaskStatus(CLICKUP_TOKEN, task["task_id"], new_status)
-
-    if result == 401:
-        await interaction.followup.send("Failed to update the task status. Please contact a dev.")
+    try:
+        result = updateTaskStatus(CLICKUP_TOKEN, task["task_id"], new_status)
+    except Exception as e:
+        await interaction.followup.send(str(e))
         return
-
+    
     del pending_status_changes[user.id]
     invalidateTaskCache(user.id)
 
