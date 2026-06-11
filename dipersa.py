@@ -37,7 +37,7 @@ async def on_ready():
     try:
         await bot.tree.sync(guild=ServerID)
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-        channel = await bot.fetch_channel(getChannel("commands"))
+        channel = await bot.fetch_channel(getChannel("commands_test"))
         if channel:
             await channel.send(embed=embed)
         print("Ready!!!")
@@ -55,6 +55,23 @@ async def on_message(message):
         await message.channel.send('very nice')
 
 # Commands
+@bot.tree.command(name="help", description="Display all Bot Comands", guild=ServerID)
+async def help(interaction: discord.Interaction):
+    embed = discord.Embed(title="Dipersa Commands and Info", description="Here are all the commands I have and their descriptions.", color=discord.Color.blue())
+    embed.add_field(name="/signup", value="Connect your Discord user to your CLickUp user in the Spequlo Workspace", inline=False)
+    embed.add_field( name="/assign-manual", value="Manually assign a task to a user on ClickUp.", inline=False)
+    embed.add_field(name="/view-my-tasks", value="Get a list of all your tasks and their progress.", inline=False)
+    embed.add_field(name="/change-status", value="Change the status of one of your tasks.", inline=False)
+    embed.add_field(name="/confirm-status", value="Confirm the new status for a selected task.", inline=False)
+    embed.add_field(name="/summarize", value="Summarize and create tasks from discord conversations over a timeframe using AI.", inline=False)
+    embed.add_field(name="/revise-summary", value="Regenerate the created summary and tasks using user feedback.", inline=False)
+    embed.add_field(name="/create-tasks", value="Confirm the creation of the AI genrated tasks on ClickUp.", inline=False)
+    embed.add_field(name="/help", value="Display all the bot commands", inline=False)
+    embed.set_footer(text="Thank you for using Dipersa.")   
+
+    await interaction.response.send_message(embed=embed)
+
+
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
     user = interaction.user
@@ -76,7 +93,7 @@ async def signUp(interaction: discord.Interaction, id: int):
     embed = discord.Embed(title="I couldn't find you on ClickUp", description=f"{user.mention}, Be sure you used the right ClickUp ID!", color=discord.Color.red())       
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="assign", description="Assign a user a task on ClickUp", guild=ServerID)
+@bot.tree.command(name="assign-manual", description="Manually assign a task to a user on ClickUp", guild=ServerID)
 @app_commands.choices(
     team=[    
         app_commands.Choice(name="Mobile App", value="mobile_app"),
@@ -97,7 +114,7 @@ async def signUp(interaction: discord.Interaction, id: int):
         app_commands.Choice(name="Low", value="4")
     ]
 )
-async def assign(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
+async def assignManual(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
     if team == "website": 
         list_id = int(getListId("website", "list"))
     else:
@@ -124,7 +141,7 @@ async def assign(interaction: discord.Interaction, user: discord.Member, task: s
     embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="viewmytasks", description="Assign a user a task on ClickUp", guild=ServerID)
+@bot.tree.command(name="view-my-tasks", description="Get a list of all your tasks and their progress", guild=ServerID)
 @app_commands.choices(
     team=[    
         app_commands.Choice(name="Mobile App", value="mobile_app"),
@@ -144,7 +161,6 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     user = interaction.user
 
     my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
-
 
     if my_tasks == 401:
         embed = discord.Embed(title=f"Error Fetching Tasks", description="Looks like there was an error while trying to retrieve your tasks. Please contact a dev.", color=discord.Color.red())
@@ -197,7 +213,7 @@ async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_nam
     for message in messages:
         await interaction.followup.send(message)   
 
-@bot.tree.command(name="changestatus", description="Change the status of one of your tasks", guild=ServerID)
+@bot.tree.command(name="change-status", description="Change the status of one of your tasks", guild=ServerID)
 async def changeStatus(interaction: discord.Interaction, task_number: int):
     await interaction.response.defer()
     user = interaction.user
@@ -233,7 +249,7 @@ async def changeStatus(interaction: discord.Interaction, task_number: int):
         f"\nUse `/confirmstatus <number>` to confirm."
     )
 
-@bot.tree.command(name="confirmstatus", description="Confirm the new status for your task", guild=ServerID)
+@bot.tree.command(name="confirm-status", description="Confirm the new status for your task", guild=ServerID)
 async def confirmStatus(interaction: discord.Interaction, status_number: int):
     await interaction.response.defer()
     user = interaction.user
@@ -322,7 +338,7 @@ async def summarize(interaction: discord.Interaction, timeframe: str = "30m", co
 
     await interaction.followup.send(formatSummary(result))
 
-@bot.tree.command(name="revisesummary", description="Regenerate the created summary", guild=ServerID)
+@bot.tree.command(name="revise-summary", description="Regenerate the created summary", guild=ServerID)
 @checks.cooldown(1, 15.0)
 async def reviseSummary(interaction: discord.Interaction, feedback: str):
     await interaction.response.defer()
@@ -360,7 +376,7 @@ async def reviseSummary(interaction: discord.Interaction, feedback: str):
 
     await interaction.followup.send(formatSummary(new_summary))
 
-@bot.tree.command(name="createtasks", description="Create tasks from a discussion summary", guild=ServerID)
+@bot.tree.command(name="create-tasks", description="Create tasks from a discussion summary", guild=ServerID)
 @app_commands.choices(
     team=[    
         app_commands.Choice(name="Mobile App", value="mobile_app"),
