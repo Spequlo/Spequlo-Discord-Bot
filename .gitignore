@@ -1,8 +1,6 @@
 .env
-members.json
 discord.log
 __pycache__/
 *.pyc
 temp.txt
-*.sql
 *.log

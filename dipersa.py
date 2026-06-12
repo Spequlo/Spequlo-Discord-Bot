@@ -53,16 +53,17 @@ async def on_ready():
         if bot.user is None:
             return
         
+        intro_channel = "commands"
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
-        channel_id = getChannel("commands_test")
+        channel_id = getChannel(intro_channel)
         
         if channel_id is None:
-            raise ValueError("commands_test channel not configured")
+            raise ValueError(f"{intro_channel} channel not configured")
         
         channel = await bot.fetch_channel(channel_id)
 
         if not isinstance(channel, discord.TextChannel):
-            raise TypeError("commands_test is not a text channel")
+            raise TypeError(f"{intro_channel} is not a text channel")
 
         if channel:
             await channel.send(embed=embed)
