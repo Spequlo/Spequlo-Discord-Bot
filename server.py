@@ -5,7 +5,12 @@ import os
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
+if SUPABASE_URL is None:
+    raise ValueError("SUPABASE_URL is not set")
+
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+if SUPABASE_KEY is None:
+    raise ValueError("SUPABASE_KEY is not set")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
