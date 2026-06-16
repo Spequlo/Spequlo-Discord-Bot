@@ -1,4 +1,5 @@
 from google import genai
+from google.genai import types
 import os
 import json
 from dotenv import load_dotenv
@@ -223,6 +224,80 @@ def regenerateSummary(summary: str, transcript: str, feedback: str):
         elif "503" in error_text:
             raise RuntimeError("SERVICE_UNAVAILABLE")
 
+        elif "RESOURCE_EXHAUSTED" in error_text:
+            raise RuntimeError("QUOTA_EXCEEDED")
+
+        raise
+
+def classifyIntent(request: str, display_name: str):
+    prompt = f"""
+    You are an intent router for a Discord bot that manages ClickUp tasks.
+
+    A user sent this message after tagging the bot:
+    "{request}"
+
+    Sender: {display_name}
+
+    ---
+
+    ## Your Job
+
+    Classify this message into exactly one of these intents:
+
+    - **view_tasks** — user wants to see their assigned tasks
+    - **create_task** — user wants to create a new task (explicit ask, e.g. "add a task to fix the login bug")
+    - **change_status** — user wants to update a task's status (e.g. "mark the BOM task as done")
+    - **analyze_conversation** — user wants the bot to scan recent channel messages for tasks
+    - **unclear** — the request doesn't clearly map to any of the above, or critical info is missing
+
+    ---
+
+    ## Rules
+
+    - Only extract params explicitly present or directly implied in the message. Never invent a list name, assignee, or deadline.
+    - Set confidence to "low" if the intent is ambiguous between two categories, or if a required param is missing.
+    - If confidence is "low", write a specific, short `clarifying_question` that would resolve the ambiguity. Otherwise set it to null.
+    - Respond ONLY with valid JSON. No markdown fences, no commentary.
+
+    ---
+
+    ## Output    
+    {{
+        "intent": "view_tasks | create_task | change_status | analyze_conversation | unclear",
+        "confidence": "high | medium | low",
+        "params": {{
+            "list_hint": "string or null",
+            "task_name": "string or null",
+            "status": "string or null",
+            "assignee_discord_id": "string or null",
+            "deadline": "YYYY-MM-DD or null"
+        }},
+        "clarifying_question": "string or null"
+    }}
+    """
+
+    try:
+        response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+        text = response.text
+        if text is None:
+            raise ValueError("Gemini returned an empty response")
+        text = text.strip()
+        result = json.loads(text)
+
+        required = {"intent", "confidence", "params", "clarifying_question"}
+        missing = required - result.keys()
+
+        if missing:
+            raise ValueError(f"Missing fields: {missing}")
+
+        return result
+    except Exception as e:
+        error_text = str(e)
+
+        if "429" in error_text:
+            raise RuntimeError("RATE_LIMIT")
+        elif "503" in error_text:
+            raise RuntimeError("SERVICE_UNAVAILABLE")
         elif "RESOURCE_EXHAUSTED" in error_text:
             raise RuntimeError("QUOTA_EXCEEDED")
 

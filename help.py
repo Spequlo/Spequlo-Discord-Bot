@@ -1,6 +1,7 @@
 import requests
 import time
 from server import *
+from ai import *
 from typing import Any
 from datetime import datetime, timedelta, timezone
 
@@ -197,4 +198,36 @@ def formatSummary(result: dict):
         f"**Ambiguities**\n"
         f"{ambiguity_text}"
     )
+
+# async def handleRequest(author_id, display_name, channel_id, guild_id, request, reference):
+#     try:
+#         result = classifyIntent(request, display_name)
+#     except RuntimeError as e:
+#         await message_channel(channel_id, f"⚠️ Couldn't process that right now ({e}). Try again shortly.")
+#         return
+
+#     intent = result["intent"]
+#     confidence = result["confidence"]
+#     params = result["params"]
+
+#     print(f"[handleRequest] intent={intent} confidence={confidence} params={params}")
+
+#     if confidence == "low" or intent == "unclear":
+#         question = result.get("clarifying_question") or "I'm not sure what you'd like me to do — could you clarify?"
+#         await message_channel(channel_id, question)
+#         return
+
+#     stub_handlers = {
+#         "view_tasks": stub_view_tasks,
+#         "create_task": stub_create_task,
+#         "change_status": stub_change_status,
+#         "analyze_conversation": stub_analyze_conversation,
+#     }
+
+#     handler = stub_handlers.get(intent)
+#     if handler is None:
+#         await message_channel(channel_id, "I understood the intent but don't have a handler for it yet.")
+#         return
+
+#     await handler(params, channel_id)
 
