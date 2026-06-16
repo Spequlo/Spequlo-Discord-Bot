@@ -6,6 +6,32 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+TEAM_LISTS = """
+Team: mobile_app
+- backlog
+- current_sprint
+- bugs
+
+Team: integration
+- backlog
+- current_sprint
+- bugs
+
+Team: internal_tools
+- backlog
+- current_sprint
+- bugs
+
+Team: infrastructure
+- backlog
+- current_sprint
+- bugs
+
+Team: website
+- list
+"""
+
+
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 def summarizeTranscript(transcript: str, context: str):
@@ -229,14 +255,14 @@ def regenerateSummary(summary: str, transcript: str, feedback: str):
 
         raise
 
-def classifyIntent(request: str, display_name: str):
+def classifyIntent(request: str, user_id: int, user_name: str, assignee_id: int | None, assignee_name: str | None):
     prompt = f"""
     You are an intent router for a Discord bot that manages ClickUp tasks.
 
     A user sent this message after tagging the bot:
     "{request}"
 
-    Sender: {display_name}
+    Sender: {user_name}
 
     ---
 
@@ -247,37 +273,77 @@ def classifyIntent(request: str, display_name: str):
     - **view_tasks** — user wants to see their assigned tasks
     - **create_task** — user wants to create a new task (explicit ask, e.g. "add a task to fix the login bug")
     - **change_status** — user wants to update a task's status (e.g. "mark the BOM task as done")
-    - **analyze_conversation** — user wants the bot to scan recent channel messages for tasks
+    - **summarize_conversation** — user wants the bot to read recent channel messages and create summary
     - **unclear** — the request doesn't clearly map to any of the above, or critical info is missing
 
     ---
-
-    ## Rules
+    
+    ## General Rules
 
     - Only extract params explicitly present or directly implied in the message. Never invent a list name, assignee, or deadline.
     - Set confidence to "low" if the intent is ambiguous between two categories, or if a required param is missing.
     - If confidence is "low", write a specific, short `clarifying_question` that would resolve the ambiguity. Otherwise set it to null.
     - Respond ONLY with valid JSON. No markdown fences, no commentary.
 
-    ---
+    ## Rules for create_task
+
+    - Only generate a task if there is a clear action item, commitment, assignment, or agreed-upon need.
+    - Do NOT generate tasks from brainstorming, open-ended suggestions, unresolved debates, or passing ideas.
+    - `task_name` should be short and actionable.
+    - `description` should contain supporting details not included in `task_name`.
+
+    **Team and list selection:**
+    The following teams and lists exist:
+    {TEAM_LISTS}
+
+    - Select the most appropriate `team` and `list_name` if one can be reasonably and unambiguously inferred from the message.
+    - Never invent a team or list not shown above — only use exact names from the list.
+    - If the user's wording doesn't clearly match one specific list (e.g. it matches a list name that exists under multiple teams, or no list at all), set `team` and `list_name` to null and lower confidence.
+    - If you cannot confidently select a team/list, do not guess — leave both null and let `clarifying_question` ask which list to use.
+
+    **Assignee resolution:**
+    - This message may already contain a resolved assignee, provided below. If so, use it exactly as given — do not try to re-derive it from the text.
+    - Resolved assignee from this message: {assignee_name} (Discord ID: {assignee_id}) — or "none" if no mention/reply target was present.
+    - If a resolved assignee is given above, set `assignee_discord_id` and `assignee_name` to those exact values whenever the message's intent is to assign a task to that person.
+    - If no resolved assignee is given, but the user refers to themselves ("assign to me", "I'll take it"), use the sender's ID: {user_id} and name: {user_name}.
+    - Otherwise (no resolved assignee, no self-reference), set both `assignee_discord_id` and `assignee_name` to null — even if a name is mentioned in plain text. Do not guess a Discord ID from a name alone.
+        
+    **Deadlines:**
+    - Only extract a deadline if it was explicitly stated.
+    - Convert deadlines to YYYY-MM-DD.
+    - If no deadline was stated, set `deadline` to null.
+    - Do not invent dates.
+
+    **Priority** (1 = urgent, 4 = low):
+    - 1: Urgent — "urgent", "asap", "immediately"
+    - 2: High — "high priority", "important"
+    - 3: Normal — unspecified
+    - 4: Low — "low priority", "whenever"
 
     ## Output    
+
+    Respond with this exact JSON shape. `assignee_discord_id` is a numeric Discord snowflake represented as a string.
+
     {{
-        "intent": "view_tasks | create_task | change_status | analyze_conversation | unclear",
+        "intent": "view_tasks | create_task | change_status | summarize_conversation | unclear",
         "confidence": "high | medium | low",
         "params": {{
-            "list_hint": "string or null",
-            "task_name": "string or null",
+           "task_name": "string or null",
+            "description": "string or null",
             "status": "string or null",
+            "priority": "1 | 2 | 3 | 4 | null",
             "assignee_discord_id": "string or null",
-            "deadline": "YYYY-MM-DD or null"
+            "assignee_name": "string or null",
+            "deadline": "YYYY-MM-DD or null",
+            "team": "string or null",
+            "list_name": "string or null"
         }},
         "clarifying_question": "string or null"
     }}
     """
 
     try:
-        response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
         text = response.text
         if text is None:
             raise ValueError("Gemini returned an empty response")
@@ -302,3 +368,4 @@ def classifyIntent(request: str, display_name: str):
             raise RuntimeError("QUOTA_EXCEEDED")
 
         raise
+

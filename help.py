@@ -2,7 +2,6 @@ import requests
 import time
 from server import *
 from ai import *
-from typing import Any
 from datetime import datetime, timedelta, timezone
 
 task_cache = {}
@@ -198,6 +197,48 @@ def formatSummary(result: dict):
         f"**Ambiguities**\n"
         f"{ambiguity_text}"
     )
+
+def findAssignee(message, user) -> tuple[int | None, str | None]:
+    mentioned_users = [u for u in message.mentions if u != user]
+    if mentioned_users:
+        return mentioned_users[0].id, mentioned_users[0].display_name
+
+    if message.reference and message.reference.resolved:
+        ref_author = message.reference.resolved.author
+        if ref_author != user:
+            return ref_author.id, ref_author.display_name
+
+    return None, None
+
+def viewTasksHandler():
+    pass
+
+def createTaskHandler(params, TOKEN):
+    task_name = params["task_name"]
+    task_desc = params["description"]
+    priority = params.get("priority")
+    assignee_id = params.get("assignee_discord_id")
+    list_value = getListId(params["team"], params["list_name"])
+    if list_value is None:
+        raise ValueError(f"List ID not found!")
+    LIST_ID = int(list_value)
+
+    response = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
+
+    if response == 402:
+        return "Assignee is not linked to a ClickUp account."
+
+    if response not in (200, 201):
+        return f"ClickUp returned status {response}."
+    
+    return f"Created task: {task_name}"
+
+def changeStatusHandler():
+    pass
+
+def summarizeConversationHandler():
+    pass
+
 
 # async def handleRequest(author_id, display_name, channel_id, guild_id, request, reference):
 #     try:
