@@ -8,29 +8,65 @@ load_dotenv()
 
 TEAM_LISTS = """
 Team: mobile_app
-- backlog
-- current_sprint
-- bugs
+Purpose: Features, improvements, bugs, and maintenance related to the mobile application.
+
+Lists:
+- backlog: Planned mobile work not currently being worked on.
+- current_sprint: Mobile app work actively being developed this sprint.
+- bugs: Mobile-specific issues and bug fixes.
 
 Team: integration
-- backlog
-- current_sprint
-- bugs
+Purpose: Integrations between Spequlo and external services, APIs, third-party platforms, and automation systems.
+
+Lists:
+- backlog: Planned integration work set aside for a later date.
+- current_sprint: Integration work actively being developed.
+- bugs: Integration-specific issues.
 
 Team: internal_tools
-- backlog
-- current_sprint
-- bugs
+Purpose: Internal company tools, admin panels, Discord bots, development utilities, automation scripts, operational tooling, and engineering productivity tools.
+
+Lists:
+- backlog: Planned internal tooling work.
+- current_sprint: Internal tooling work actively being developed.
+- bugs: Internal tool issues.
 
 Team: infrastructure
-- backlog
-- current_sprint
-- bugs
+Purpose: Hosting, servers, deployments, cloud resources, networking, databases, monitoring, CI/CD, security, and platform reliability.
+
+Lists:
+- backlog: Planned infrastructure work.
+- current_sprint: Infrastructure work actively being worked on.
+- bugs: Infrastructure incidents and issues.
 
 Team: website
-- list
-"""
+Purpose: The company's website, landing pages, marketing pages, SEO, and web presence.
 
+Lists:
+- list: General website work.
+
+Examples:
+
+"Add login screen to the mobile app"
+→ team: mobile_app
+→ list_name: current_sprint
+
+"Fix deployment pipeline"
+→ team: infrastructure
+→ list_name: current_sprint
+
+"Integrate Slack notifications"
+→ team: integration
+→ list_name: current_sprint
+
+"Add a command to the Discord bot"
+→ team: internal_tools
+→ list_name: current_sprint
+
+"Update the company landing page"
+→ team: website
+→ list_name: list
+"""
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -298,8 +334,9 @@ def classifyIntent(request: str, user_id: int, user_name: str, assignee_id: int 
 
     - Select the most appropriate `team` and `list_name` if one can be reasonably and unambiguously inferred from the message.
     - Never invent a team or list not shown above — only use exact names from the list.
-    - If the user's wording doesn't clearly match one specific list (e.g. it matches a list name that exists under multiple teams, or no list at all), set `team` and `list_name` to null and lower confidence.
-    - If you cannot confidently select a team/list, do not guess — leave both null and let `clarifying_question` ask which list to use.
+    - Prefer selecting the most likely team and list using the team descriptions.
+    - Only leave team and list null if multiple teams are equally plausible.
+    - If the user's wording doesn't clearly match one specific list (e.g. it matches a list name that exists under multiple teams, or no list at all), set `team` and `list_name` to null and lower confidence and let `clarifying_question` ask which list to use.
 
     **Assignee resolution:**
     - This message may already contain a resolved assignee, provided below. If so, use it exactly as given — do not try to re-derive it from the text.

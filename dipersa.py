@@ -1,6 +1,10 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
+# Need to add ability for bot to worked based of a reply.
+# It should work if tagged in a reply. ANd if clarifying or changes need to be made, it should work if the bot itself is replied to.
+# need to add ability for bot to ask a clarifying questions then send another request imeediately.
+
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -137,7 +141,7 @@ async def on_message(message):
         await message.reply(f"⚠️ Couldn't process that right now ({e}). Try again shortly.")
         return
 
-        
+
 # Commands
 @bot.tree.command(name="help", description="Display all Bot Comands", guild=ServerID)
 async def help(interaction: discord.Interaction):

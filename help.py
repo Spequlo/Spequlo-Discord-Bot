@@ -1,7 +1,6 @@
 import requests
 import time
 from server import *
-from ai import *
 from datetime import datetime, timedelta, timezone
 
 task_cache = {}
