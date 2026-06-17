@@ -1,9 +1,10 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
-# Need to add ability for bot to worked based of a reply.
-# It should work if tagged in a reply. ANd if clarifying or changes need to be made, it should work if the bot itself is replied to.
-# need to add ability for bot to ask a clarifying questions then send another request imeediately.
+# need to create modify and viewtask handlers
+# Is an unassigned task something you want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
+# consider using aiohtttp incase multiple users want to use multiple request at the same time.
+# when doing modify tasks, add a check in  handler for that only the author of the task can modify it
 
 import discord
 from discord.ext import commands
@@ -47,6 +48,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 pending_status_changes = {}
 discussion_summary = {}
+bot_context = {}
 
 ##  Events
 @bot.event
@@ -83,22 +85,37 @@ async def on_message(message):
 
     if message.author == bot.user:
         return
-    
-    if bot.user not in message.mentions:
-        return
-    
-    content = message.content.replace(f"<@{bot.user.id}>", "").strip()
 
-    request = content
+    is_mention = bot.user in message.mentions
+    is_reply_to_bot = False
+    metadata = None
+    referenced_message = message.reference.resolved if message.reference else None
+
+    if message.reference and referenced_message is None:
+        try:
+            referenced_message = await message.channel.fetch_message(message.reference.message_id)
+        except discord.NotFound:
+            referenced_message = None
+    
+    if referenced_message:
+        print(f"Reply context found: {bot_context.get(referenced_message.id)}")
+        metadata = bot_context.get(referenced_message.id)
+        is_reply_to_bot = (referenced_message.author.id == bot.user.id)
+
+    if not is_mention and not is_reply_to_bot:
+        return
+
+    content = message.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
 
     if not content:
         await message.reply("Hello! 👋")
         return
     
+    request_context = {"current_message": content, "referenced_message": referenced_message.content if referenced_message else None, "metadata": metadata}
     assignee_id, assignee_name = findAssignee(message, bot.user)
 
     try:
-        result = classifyIntent(request, message.author.id, message.author.display_name, assignee_id, assignee_name)
+        result = classifyIntent(request_context, message.author.id, message.author.display_name, assignee_id, assignee_name)
         intent = result["intent"]
         confidence = result["confidence"]
         params = result["params"]
@@ -107,7 +124,8 @@ async def on_message(message):
 
         if confidence == "low" or intent == "unclear":
             question = result.get("clarifying_question") or "I'm not sure what you'd like me to do — could you clarify?"
-            await message.reply(question)
+            bot_message = await message.reply(question)
+            bot_context[bot_message.id] = {"conversation_type": "clarification", "original_result": result}
             return
         
         request_handlers = {
@@ -115,6 +133,7 @@ async def on_message(message):
             "create_task": createTaskHandler,
             "change_status": changeStatusHandler,
             "summarize_conversation": summarizeConversationHandler,
+            "modify_task": modifyTaskHandler
         }
 
         handler = request_handlers.get(intent)
@@ -123,8 +142,15 @@ async def on_message(message):
             await message.reply("I understood the intent but don't have a handler for it yet.")
             return
 
-        reply = handler(params, CLICKUP_TOKEN)
-        await message.reply(reply)
+        result = handler(params, CLICKUP_TOKEN)
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Handler {intent} returned invalid result")
+        bot_message = await message.reply(result["message"])
+        bot_context[bot_message.id] = {
+            "intent": intent,
+            "requester_discord_id": message.author.id,
+            **result.get("metadata", {})
+        }
 
     except RuntimeError as e:
         if str(e) == "RATE_LIMIT":
@@ -140,7 +166,6 @@ async def on_message(message):
         print(e)
         await message.reply(f"⚠️ Couldn't process that right now ({e}). Try again shortly.")
         return
-
 
 # Commands
 @bot.tree.command(name="help", description="Display all Bot Comands", guild=ServerID)

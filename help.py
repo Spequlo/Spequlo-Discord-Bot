@@ -10,13 +10,12 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
     member = getMember(userID)
 
     if not member:
-        return 402
+        return None
 
     task_data = {
         "name": str(task),
         "description": str(desc),
         "priority": priority,
-        # "status": "to do",
         "assignees": [int(member)]
     }
 
@@ -27,7 +26,9 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
         "Content-Type": "application/json"
     }
     response = requests.post(url, json=task_data, headers=headers)
-    return response.status_code
+    if response.status_code not in (200, 201):
+        return None
+    return response.json()
 
 def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
     url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
@@ -209,28 +210,51 @@ def findAssignee(message, user) -> tuple[int | None, str | None]:
 
     return None, None
 
-def viewTasksHandler():
+def viewTasksHandler(params, TOKEN):
     pass
 
 def createTaskHandler(params, TOKEN):
-    task_name = params["task_name"]
+    task_name = params["name"]
     task_desc = params["description"]
-    priority = params.get("priority")
+    priority = params.get("priority") or 3
     assignee_id = params.get("assignee_discord_id")
+
+    if assignee_id is None:
+        raise ValueError("Assignee missing")
+    if not params["team"]:
+        raise ValueError("Team missing")
+    if not params["list_name"]:
+        raise ValueError("List missing")
+    
     list_value = getListId(params["team"], params["list_name"])
     if list_value is None:
         raise ValueError(f"List ID not found!")
     LIST_ID = int(list_value)
 
-    response = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
 
-    if response == 402:
-        return "Assignee is not linked to a ClickUp account."
+    task = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
 
-    if response not in (200, 201):
-        return f"ClickUp returned status {response}."
+    if task is None:
+        return {
+            "message": "Failed to create task.",
+            "metadata": {}
+        }
     
-    return f"Created task: {task_name}"
+    return {
+        "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
+        "metadata": {
+            "task_id": task["id"],
+            "task_name": task["name"],
+            "task_description": task.get("description"),
+            "priority":     task["priority"]["id"] if task["priority"] else None,
+            "status": task["status"]["status"],
+            "list_id": task["list"]["id"],
+            "team": task["project"]["name"],
+            "list_name": task["list"]["name"],
+            "url": task["url"],
+            "assignee_discord_id": assignee_id
+        }
+}
 
 def changeStatusHandler():
     pass
@@ -238,36 +262,5 @@ def changeStatusHandler():
 def summarizeConversationHandler():
     pass
 
-
-# async def handleRequest(author_id, display_name, channel_id, guild_id, request, reference):
-#     try:
-#         result = classifyIntent(request, display_name)
-#     except RuntimeError as e:
-#         await message_channel(channel_id, f"⚠️ Couldn't process that right now ({e}). Try again shortly.")
-#         return
-
-#     intent = result["intent"]
-#     confidence = result["confidence"]
-#     params = result["params"]
-
-#     print(f"[handleRequest] intent={intent} confidence={confidence} params={params}")
-
-#     if confidence == "low" or intent == "unclear":
-#         question = result.get("clarifying_question") or "I'm not sure what you'd like me to do — could you clarify?"
-#         await message_channel(channel_id, question)
-#         return
-
-#     stub_handlers = {
-#         "view_tasks": stub_view_tasks,
-#         "create_task": stub_create_task,
-#         "change_status": stub_change_status,
-#         "analyze_conversation": stub_analyze_conversation,
-#     }
-
-#     handler = stub_handlers.get(intent)
-#     if handler is None:
-#         await message_channel(channel_id, "I understood the intent but don't have a handler for it yet.")
-#         return
-
-#     await handler(params, channel_id)
-
+def modifyTaskHandler():
+    pass
