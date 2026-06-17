@@ -298,9 +298,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     Current user message: "{request["current_message"]}"
     Sender: {user_name}
     Referenced bot message: "{request["referenced_message"]}"
-    Referenced task metadata:
-
-    {request["metadata"]}
+    Referenced task metadata: {json.dumps(request["metadata"])}
 
     This metadata is authoritative.
 
@@ -337,7 +335,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     ## Conversational Context
 
     The user may be replying to a previous bot message.
-
+    Only allow original creator to modify task
     If the current message depends on information contained in:
     - the referenced bot message
     - prior conversation history
@@ -419,7 +417,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
         "confidence": "high | medium | low",
         "params": {{
            "task_name": "string or null",
-            "task_descriptipon": "string or null",
+            "task_description": "string or null",
             "status": "string or null",
             "priority": "1 | 2 | 3 | 4 | null",
             "assignee_discord_id": "string or null",

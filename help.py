@@ -16,7 +16,6 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
         "name": str(task),
         "description": str(desc),
         "priority": priority,
-        # "status": "to do",
         "assignees": [int(member)]
     }
 
@@ -216,7 +215,7 @@ def viewTasksHandler(params, TOKEN):
 
 def createTaskHandler(params, TOKEN):
     task_name = params["task_name"]
-    task_desc = params["description"]
+    task_desc = params["task_description "]
     priority = params.get("priority")
     assignee_id = params.get("assignee_discord_id")
     list_value = getListId(params["team"], params["list_name"])
@@ -233,11 +232,11 @@ def createTaskHandler(params, TOKEN):
         }
     
     return {
-        "message": f'Created task "{task["name"]} in {task["project"]["name"]} → {task["list"]["name"]}"',
+        "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
         "metadata": {
             "task_id": task["id"],
             "task_name": task["name"],
-            "task_descriptipon": task["description"],
+            "task_description": task["description"],
             "priority": task["priority"]["id"],
             "status": task["status"]["status"],
             "list_id": task["list"]["id"],

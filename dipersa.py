@@ -1,10 +1,8 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
-# Need to add ability for bot to worked based of a reply.
-# It should work if tagged in a reply. ANd if clarifying or changes need to be made, it should work if the bot itself is replied to.
-# need to add ability for bot to ask a clarifying questions then send another request imeediately.
-
+#  Is an unassigned task something you want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
+# consider using aiohtttp incase multiple users want to use multiple request at the same time.
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -86,22 +84,29 @@ async def on_message(message):
         return
 
     is_mention = bot.user in message.mentions
+    if not is_mention and not message.reference:
+        return
+    
     is_reply_to_bot = False
-    referenced_message = None
     metadata = None
+    referenced_message = message.reference.resolved if message.reference else None
 
-    if message.reference:
+    if message.reference and referenced_message is None:
         try:
             referenced_message = await message.channel.fetch_message(message.reference.message_id)
-            metadata = bot_context.get(referenced_message.id)
-            is_reply_to_bot = (referenced_message.author.id == bot.user.id)
-        except:
-            pass
+        except discord.NotFound:
+            referenced_message = None
     
-    if not is_mention and not is_reply_to_bot:
+    if referenced_message:
+        print(f"Reply context found: {bot_context.get(referenced_message.id)}")
+        metadata = bot_context.get(referenced_message.id)
+        is_reply_to_bot = (referenced_message.author.id == bot.user.id)
+
+    if not is_reply_to_bot:
         return
 
-    content = message.content.replace(f"<@{bot.user.id}>", "").strip()
+    content = message.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+
     if not content:
         await message.reply("Hello! 👋")
         return
@@ -119,7 +124,8 @@ async def on_message(message):
 
         if confidence == "low" or intent == "unclear":
             question = result.get("clarifying_question") or "I'm not sure what you'd like me to do — could you clarify?"
-            await message.reply(question)
+            bot_message = await message.reply(question)
+            bot_context[bot_message.id] = {"conversation_type": "clarification", "original_result": result}
             return
         
         request_handlers = {
@@ -137,9 +143,12 @@ async def on_message(message):
             return
 
         result = handler(params, CLICKUP_TOKEN)
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Handler {intent} returned invalid result")
         bot_message = await message.reply(result["message"])
         bot_context[bot_message.id] = {
             "intent": intent,
+            "created_by": message.author.id,
             **result.get("metadata", {})
         }
 
