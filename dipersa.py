@@ -47,6 +47,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 pending_status_changes = {}
 discussion_summary = {}
+bot_context = {}
 
 ##  Events
 @bot.event
@@ -83,22 +84,33 @@ async def on_message(message):
 
     if message.author == bot.user:
         return
+
+    is_mention = bot.user in message.mentions
+    is_reply_to_bot = False
+    referenced_message = None
+    metadata = None
+
+    if message.reference:
+        try:
+            referenced_message = await message.channel.fetch_message(message.reference.message_id)
+            metadata = bot_context.get(referenced_message.id)
+            is_reply_to_bot = (referenced_message.author.id == bot.user.id)
+        except:
+            pass
     
-    if bot.user not in message.mentions:
+    if not is_mention and not is_reply_to_bot:
         return
-    
+
     content = message.content.replace(f"<@{bot.user.id}>", "").strip()
-
-    request = content
-
     if not content:
         await message.reply("Hello! 👋")
         return
     
+    request_context = {"current_message": content, "referenced_message": referenced_message.content if referenced_message else None, "metadata": metadata}
     assignee_id, assignee_name = findAssignee(message, bot.user)
 
     try:
-        result = classifyIntent(request, message.author.id, message.author.display_name, assignee_id, assignee_name)
+        result = classifyIntent(request_context, message.author.id, message.author.display_name, assignee_id, assignee_name)
         intent = result["intent"]
         confidence = result["confidence"]
         params = result["params"]
@@ -115,6 +127,7 @@ async def on_message(message):
             "create_task": createTaskHandler,
             "change_status": changeStatusHandler,
             "summarize_conversation": summarizeConversationHandler,
+            "modify_task": modifyTaskHandler
         }
 
         handler = request_handlers.get(intent)
@@ -123,8 +136,12 @@ async def on_message(message):
             await message.reply("I understood the intent but don't have a handler for it yet.")
             return
 
-        reply = handler(params, CLICKUP_TOKEN)
-        await message.reply(reply)
+        result = handler(params, CLICKUP_TOKEN)
+        bot_message = await message.reply(result["message"])
+        bot_context[bot_message.id] = {
+            "intent": intent,
+            **result.get("metadata", {})
+        }
 
     except RuntimeError as e:
         if str(e) == "RATE_LIMIT":
@@ -140,7 +157,6 @@ async def on_message(message):
         print(e)
         await message.reply(f"⚠️ Couldn't process that right now ({e}). Try again shortly.")
         return
-
 
 # Commands
 @bot.tree.command(name="help", description="Display all Bot Comands", guild=ServerID)

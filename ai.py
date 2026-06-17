@@ -291,14 +291,26 @@ def regenerateSummary(summary: str, transcript: str, feedback: str):
 
         raise
 
-def classifyIntent(request: str, user_id: int, user_name: str, assignee_id: int | None, assignee_name: str | None):
+def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int | None, assignee_name: str | None):
     prompt = f"""
     You are an intent router for a Discord bot that manages ClickUp tasks.
 
-    A user sent this message after tagging the bot:
-    "{request}"
-
+    Current user message: "{request["current_message"]}"
     Sender: {user_name}
+    Referenced bot message: "{request["referenced_message"]}"
+    Referenced task metadata:
+
+    {request["metadata"]}
+
+    This metadata is authoritative.
+
+    If task metadata contains a task_id or task_name,
+    use it when interpreting pronouns such as:
+
+    - it
+    - that task
+    - the task
+    - the one you just created
 
     ---
 
@@ -306,11 +318,12 @@ def classifyIntent(request: str, user_id: int, user_name: str, assignee_id: int 
 
     Classify this message into exactly one of these intents:
 
-    - **view_tasks** — user wants to see their assigned tasks
-    - **create_task** — user wants to create a new task (explicit ask, e.g. "add a task to fix the login bug")
-    - **change_status** — user wants to update a task's status (e.g. "mark the BOM task as done")
-    - **summarize_conversation** — user wants the bot to read recent channel messages and create summary
-    - **unclear** — the request doesn't clearly map to any of the above, or critical info is missing
+    - **view_tasks** — user wants to see their assigned tasks.
+    - **create_task** — user wants to create a new task (explicit ask, e.g. "add a task to fix the login bug").
+    - **change_status** — user wants to update a task's status (e.g. "mark the BOM task as done").
+    - **summarize_conversation** — user wants the bot to read recent channel messages and create summary.
+    - **modify_task** - user wants to change an existing task's properties.
+    - **unclear** — the request doesn't clearly map to any of the above, or critical info is missing.
 
     ---
     
@@ -321,12 +334,52 @@ def classifyIntent(request: str, user_id: int, user_name: str, assignee_id: int 
     - If confidence is "low", write a specific, short `clarifying_question` that would resolve the ambiguity. Otherwise set it to null.
     - Respond ONLY with valid JSON. No markdown fences, no commentary.
 
+    ## Conversational Context
+
+    The user may be replying to a previous bot message.
+
+    If the current message depends on information contained in:
+    - the referenced bot message
+    - prior conversation history
+
+    you should use that context when determining intent and extracting parameters.
+
+    Examples:
+
+    Bot: Created task "Integrate ViewTasksHandler" in Current Sprint.
+    User: Move it to backlog.
+
+    → intent = change_status or modify_task
+    → task_name = Integrate ViewTasksHandler
+
+    ---
+
+    Bot: Which list should this task go in?
+    User: Internal Tools Current Sprint
+
+    → intent = create_task
+    → fill in the missing team/list information
+
+    ---
+
+    Bot: Summary of discussion...
+    User: Create tasks from that too
+
+    → intent = summarize_conversation
+
     ## Rules for create_task
 
     - Only generate a task if there is a clear action item, commitment, assignment, or agreed-upon need.
     - Do NOT generate tasks from brainstorming, open-ended suggestions, unresolved debates, or passing ideas.
     - `task_name` should be short and actionable.
     - `description` should contain supporting details not included in `task_name`.
+    - When a referenced bot message contains information about a previously created or discussed task, you may use that information to resolve pronouns such as:
+        - it
+        - that
+        - this task
+        - the task
+        - the one you just created
+    - Do not ask a clarifying question if the referenced context clearly identifies the task.
 
     **Team and list selection:**
     The following teams and lists exist:
@@ -362,11 +415,11 @@ def classifyIntent(request: str, user_id: int, user_name: str, assignee_id: int 
     Respond with this exact JSON shape. `assignee_discord_id` is a numeric Discord snowflake represented as a string.
 
     {{
-        "intent": "view_tasks | create_task | change_status | summarize_conversation | unclear",
+        "intent": "view_tasks | create_task | change_status | summarize_conversation | modify_task | unclear",
         "confidence": "high | medium | low",
         "params": {{
            "task_name": "string or null",
-            "description": "string or null",
+            "task_descriptipon": "string or null",
             "status": "string or null",
             "priority": "1 | 2 | 3 | 4 | null",
             "assignee_discord_id": "string or null",
