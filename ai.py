@@ -1,9 +1,72 @@
 from google import genai
+from google.genai import types
 import os
 import json
 from dotenv import load_dotenv
 
 load_dotenv()
+
+TEAM_LISTS = """
+Team: mobile_app
+Purpose: Features, improvements, bugs, and maintenance related to the mobile application.
+
+Lists:
+- backlog: Planned mobile work not currently being worked on.
+- current_sprint: Mobile app work actively being developed this sprint.
+- bugs: Mobile-specific issues and bug fixes.
+
+Team: integration
+Purpose: Integrations between Spequlo and external services, APIs, third-party platforms, and automation systems.
+
+Lists:
+- backlog: Planned integration work set aside for a later date.
+- current_sprint: Integration work actively being developed.
+- bugs: Integration-specific issues.
+
+Team: internal_tools
+Purpose: Internal company tools, admin panels, Discord bots, development utilities, automation scripts, operational tooling, and engineering productivity tools.
+
+Lists:
+- backlog: Planned internal tooling work.
+- current_sprint: Internal tooling work actively being developed.
+- bugs: Internal tool issues.
+
+Team: infrastructure
+Purpose: Hosting, servers, deployments, cloud resources, networking, databases, monitoring, CI/CD, security, and platform reliability.
+
+Lists:
+- backlog: Planned infrastructure work.
+- current_sprint: Infrastructure work actively being worked on.
+- bugs: Infrastructure incidents and issues.
+
+Team: website
+Purpose: The company's website, landing pages, marketing pages, SEO, and web presence.
+
+Lists:
+- list: General website work.
+
+Examples:
+
+"Add login screen to the mobile app"
+→ team: mobile_app
+→ list_name: current_sprint
+
+"Fix deployment pipeline"
+→ team: infrastructure
+→ list_name: current_sprint
+
+"Integrate Slack notifications"
+→ team: integration
+→ list_name: current_sprint
+
+"Add a command to the Discord bot"
+→ team: internal_tools
+→ list_name: current_sprint
+
+"Update the company landing page"
+→ team: website
+→ list_name: list
+"""
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -227,3 +290,119 @@ def regenerateSummary(summary: str, transcript: str, feedback: str):
             raise RuntimeError("QUOTA_EXCEEDED")
 
         raise
+
+def classifyIntent(request: str, user_id: int, user_name: str, assignee_id: int | None, assignee_name: str | None):
+    prompt = f"""
+    You are an intent router for a Discord bot that manages ClickUp tasks.
+
+    A user sent this message after tagging the bot:
+    "{request}"
+
+    Sender: {user_name}
+
+    ---
+
+    ## Your Job
+
+    Classify this message into exactly one of these intents:
+
+    - **view_tasks** — user wants to see their assigned tasks
+    - **create_task** — user wants to create a new task (explicit ask, e.g. "add a task to fix the login bug")
+    - **change_status** — user wants to update a task's status (e.g. "mark the BOM task as done")
+    - **summarize_conversation** — user wants the bot to read recent channel messages and create summary
+    - **unclear** — the request doesn't clearly map to any of the above, or critical info is missing
+
+    ---
+    
+    ## General Rules
+
+    - Only extract params explicitly present or directly implied in the message. Never invent a list name, assignee, or deadline.
+    - Set confidence to "low" if the intent is ambiguous between two categories, or if a required param is missing.
+    - If confidence is "low", write a specific, short `clarifying_question` that would resolve the ambiguity. Otherwise set it to null.
+    - Respond ONLY with valid JSON. No markdown fences, no commentary.
+
+    ## Rules for create_task
+
+    - Only generate a task if there is a clear action item, commitment, assignment, or agreed-upon need.
+    - Do NOT generate tasks from brainstorming, open-ended suggestions, unresolved debates, or passing ideas.
+    - `task_name` should be short and actionable.
+    - `description` should contain supporting details not included in `task_name`.
+
+    **Team and list selection:**
+    The following teams and lists exist:
+    {TEAM_LISTS}
+
+    - Select the most appropriate `team` and `list_name` if one can be reasonably and unambiguously inferred from the message.
+    - Never invent a team or list not shown above — only use exact names from the list.
+    - Prefer selecting the most likely team and list using the team descriptions.
+    - Only leave team and list null if multiple teams are equally plausible.
+    - If the user's wording doesn't clearly match one specific list (e.g. it matches a list name that exists under multiple teams, or no list at all), set `team` and `list_name` to null and lower confidence and let `clarifying_question` ask which list to use.
+
+    **Assignee resolution:**
+    - This message may already contain a resolved assignee, provided below. If so, use it exactly as given — do not try to re-derive it from the text.
+    - Resolved assignee from this message: {assignee_name} (Discord ID: {assignee_id}) — or "none" if no mention/reply target was present.
+    - If a resolved assignee is given above, set `assignee_discord_id` and `assignee_name` to those exact values whenever the message's intent is to assign a task to that person.
+    - If no resolved assignee is given, but the user refers to themselves ("assign to me", "I'll take it"), use the sender's ID: {user_id} and name: {user_name}.
+    - Otherwise (no resolved assignee, no self-reference), set both `assignee_discord_id` and `assignee_name` to null — even if a name is mentioned in plain text. Do not guess a Discord ID from a name alone.
+        
+    **Deadlines:**
+    - Only extract a deadline if it was explicitly stated.
+    - Convert deadlines to YYYY-MM-DD.
+    - If no deadline was stated, set `deadline` to null.
+    - Do not invent dates.
+
+    **Priority** (1 = urgent, 4 = low):
+    - 1: Urgent — "urgent", "asap", "immediately"
+    - 2: High — "high priority", "important"
+    - 3: Normal — unspecified
+    - 4: Low — "low priority", "whenever"
+
+    ## Output    
+
+    Respond with this exact JSON shape. `assignee_discord_id` is a numeric Discord snowflake represented as a string.
+
+    {{
+        "intent": "view_tasks | create_task | change_status | summarize_conversation | unclear",
+        "confidence": "high | medium | low",
+        "params": {{
+           "task_name": "string or null",
+            "description": "string or null",
+            "status": "string or null",
+            "priority": "1 | 2 | 3 | 4 | null",
+            "assignee_discord_id": "string or null",
+            "assignee_name": "string or null",
+            "deadline": "YYYY-MM-DD or null",
+            "team": "string or null",
+            "list_name": "string or null"
+        }},
+        "clarifying_question": "string or null"
+    }}
+    """
+
+    try:
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+        text = response.text
+        if text is None:
+            raise ValueError("Gemini returned an empty response")
+        text = text.strip()
+        result = json.loads(text)
+
+        required = {"intent", "confidence", "params", "clarifying_question"}
+        missing = required - result.keys()
+
+        if missing:
+            raise ValueError(f"Missing fields: {missing}")
+
+        return result
+    except Exception as e:
+        error_text = str(e)
+
+        if "429" in error_text:
+            raise RuntimeError("RATE_LIMIT")
+        elif "503" in error_text:
+            raise RuntimeError("SERVICE_UNAVAILABLE")
+        elif "RESOURCE_EXHAUSTED" in error_text:
+            raise RuntimeError("QUOTA_EXCEEDED")
+
+        raise
+

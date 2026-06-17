@@ -1,6 +1,10 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
+# Need to add ability for bot to worked based of a reply.
+# It should work if tagged in a reply. ANd if clarifying or changes need to be made, it should work if the bot itself is replied to.
+# need to add ability for bot to ask a clarifying questions then send another request imeediately.
+
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -53,7 +57,7 @@ async def on_ready():
         if bot.user is None:
             return
         
-        intro_channel = "commands"
+        intro_channel = "commands_test"
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
         channel_id = getChannel(intro_channel)
         
@@ -74,13 +78,69 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author == bot.user:
+    if bot.user is None:
         return
 
-    if message.content.lower().startswith('hello'):
-        await message.channel.send('Hello!')
-    if message.content.lower().startswith('nice'):
-        await message.channel.send('very nice')
+    if message.author == bot.user:
+        return
+    
+    if bot.user not in message.mentions:
+        return
+    
+    content = message.content.replace(f"<@{bot.user.id}>", "").strip()
+
+    request = content
+
+    if not content:
+        await message.reply("Hello! 👋")
+        return
+    
+    assignee_id, assignee_name = findAssignee(message, bot.user)
+
+    try:
+        result = classifyIntent(request, message.author.id, message.author.display_name, assignee_id, assignee_name)
+        intent = result["intent"]
+        confidence = result["confidence"]
+        params = result["params"]
+
+        print(f"[handleRequest] intent={intent} confidence={confidence} params={params}")
+
+        if confidence == "low" or intent == "unclear":
+            question = result.get("clarifying_question") or "I'm not sure what you'd like me to do — could you clarify?"
+            await message.reply(question)
+            return
+        
+        request_handlers = {
+            "view_tasks": viewTasksHandler,
+            "create_task": createTaskHandler,
+            "change_status": changeStatusHandler,
+            "summarize_conversation": summarizeConversationHandler,
+        }
+
+        handler = request_handlers.get(intent)
+
+        if handler is None:
+            await message.reply("I understood the intent but don't have a handler for it yet.")
+            return
+
+        reply = handler(params, CLICKUP_TOKEN)
+        await message.reply(reply)
+
+    except RuntimeError as e:
+        if str(e) == "RATE_LIMIT":
+            await message.reply("Gemini is currently rate-limiting requests. Please try again in a moment.")
+            return
+        elif str(e) == "SERVICE_UNAVAILABLE":
+            await message.reply("Gemini is temporarily unavailable. Please try again later.")
+            return
+        elif str(e) == "QUOTA_EXCEEDED":
+            await message.reply("Gemini free-tier quota exhausted. Please try again later.")
+            return
+    except Exception as e:
+        print(e)
+        await message.reply(f"⚠️ Couldn't process that right now ({e}). Try again shortly.")
+        return
+
 
 # Commands
 @bot.tree.command(name="help", description="Display all Bot Comands", guild=ServerID)
