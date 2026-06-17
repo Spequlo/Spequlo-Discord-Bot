@@ -292,7 +292,7 @@ def regenerateSummary(summary: str, transcript: str, feedback: str):
         raise
 
 def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int | None, assignee_name: str | None):
-    prompt = f"""
+    prompt = rf"""
     You are an intent router for a Discord bot managing ClickUp tasks. Analyze the input data to determine user intent, extract exact parameters, and output structured JSON.
 
     ## Input Context
@@ -325,14 +325,29 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
 
     ## Parameter Rules
     Extract parameters *only* if explicitly present or directly implied. Never invent data.
-    
-    | Parameter | Extraction Rules |
-    | :--- | :--- |
-    | **id / name** | Pull from Referenced Metadata if user refers to an existing/recent task. `name` must be short and actionable. |
-    | **priority** | `1` (Urgent/ASAP/Immediately) \| `2` (High/Important) \| `3` (Unspecified/Normal) \| `4` (Low/Whenever). Default to `3` if unspecified. |
-    | **deadline** | Convert explicit dates to `YYYY-MM-DD`. Null if unstated. Never guess dates. |
-    | **team / list_name** | Must match the `Available Workspace Tree` exactly. If matching list is ambiguous across teams or missing, set both to null, lower confidence, and clarify. |
-    | **assignee** | 1. If Message Assignee Hook is not "none", use those exact values.<br>2. If user self-references ("me", "I'll take it"), use Sender ID/Name.<br>3. Otherwise, set both to null. Do not guess Snowflake IDs from text names. |
+
+    - id / name
+    - Pull from Referenced Metadata if user refers to an existing task.
+    - Name must be short and actionable.
+
+    - priority
+    - 1 = Urgent / ASAP / Immediately
+    - 2 = High / Important
+    - 3 = Normal (default)
+    - 4 = Low / Whenever
+
+    - deadline
+    - Convert explicit dates to YYYY-MM-DD.
+    - Never invent dates.
+
+    - team / list_name
+    - Must exactly match the Available Workspace Tree.
+    - If ambiguous, set both to null and ask a clarifying question.
+
+    - assignee
+    - If Message Assignee Hook exists, use it exactly.
+    - If user says "me" or "I'll take it", use Sender ID/Name.
+    - Otherwise null.
 
     ---
 
