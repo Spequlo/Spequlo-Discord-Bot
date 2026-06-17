@@ -150,7 +150,7 @@ async def on_message(message):
         bot_message = await message.reply(result["message"])
         bot_context[bot_message.id] = {
             "intent": intent,
-            "created_by": message.author.id,
+            "requester_discord_id": message.author.id,
             **result.get("metadata", {})
         }
 

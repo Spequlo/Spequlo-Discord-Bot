@@ -215,13 +215,22 @@ def viewTasksHandler(params, TOKEN):
 
 def createTaskHandler(params, TOKEN):
     task_name = params["name"]
-    task_desc = params["description "]
-    priority = params.get("priority")
+    task_desc = params["description"]
+    priority = params.get("priority") or 3
     assignee_id = params.get("assignee_discord_id")
+
+    if assignee_id is None:
+        raise ValueError("Assignee missing")
+    if not params["team"]:
+        raise ValueError("Team missing")
+    if not params["list_name"]:
+        raise ValueError("List missing")
+    
     list_value = getListId(params["team"], params["list_name"])
     if list_value is None:
         raise ValueError(f"List ID not found!")
     LIST_ID = int(list_value)
+
 
     task = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
 
@@ -236,13 +245,14 @@ def createTaskHandler(params, TOKEN):
         "metadata": {
             "task_id": task["id"],
             "task_name": task["name"],
-            "task_description": task["description"],
-            "priority": task["priority"]["id"],
+            "task_description": task.get("description"),
+            "priority":     task["priority"]["id"] if task["priority"] else None,
             "status": task["status"]["status"],
             "list_id": task["list"]["id"],
             "team": task["project"]["name"],
             "list_name": task["list"]["name"],
-            "url": task["url"]
+            "url": task["url"],
+            "assignee_discord_id": assignee_id
         }
 }
 
