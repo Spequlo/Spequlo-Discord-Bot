@@ -214,8 +214,8 @@ def viewTasksHandler(params, TOKEN):
     pass
 
 def createTaskHandler(params, TOKEN):
-    task_name = params["task_name"]
-    task_desc = params["task_description "]
+    task_name = params["name"]
+    task_desc = params["description "]
     priority = params.get("priority")
     assignee_id = params.get("assignee_discord_id")
     list_value = getListId(params["team"], params["list_name"])
