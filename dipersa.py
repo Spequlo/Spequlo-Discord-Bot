@@ -2,9 +2,10 @@
 # Author - Edidiong Ekong
 
 # need to create modify and viewtask handlers
-# Is an unassigned task something you want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
 # consider using aiohtttp incase multiple users want to use multiple request at the same time.
 # when doing modify tasks, add a check in  handler for that only the author of the task can modify it
+# Is an unassigned task something I want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
+
 
 import discord
 from discord.ext import commands
