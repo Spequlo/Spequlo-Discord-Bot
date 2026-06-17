@@ -43,3 +43,9 @@ def getListId(team, list):
     if not response.data:
         return None
     return response.data[0]["list_id"]
+
+def getList(team, list):
+    response = supabase.table("clickup_lists").select("list_id").eq("team", team).eq("list", list).execute()
+    if not response.data:
+        return None
+    return response.data[0]["list_id"]

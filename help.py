@@ -1,7 +1,6 @@
 import requests
 import time
 from server import *
-from typing import Any
 from datetime import datetime, timedelta, timezone
 
 task_cache = {}
@@ -11,13 +10,12 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
     member = getMember(userID)
 
     if not member:
-        return 402
+        return None
 
     task_data = {
         "name": str(task),
         "description": str(desc),
         "priority": priority,
-        # "status": "to do",
         "assignees": [int(member)]
     }
 
@@ -28,7 +26,9 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
         "Content-Type": "application/json"
     }
     response = requests.post(url, json=task_data, headers=headers)
-    return response.status_code
+    if response.status_code not in (200, 201):
+        return None
+    return response.json()
 
 def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
     url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
@@ -198,3 +198,69 @@ def formatSummary(result: dict):
         f"{ambiguity_text}"
     )
 
+def findAssignee(message, user) -> tuple[int | None, str | None]:
+    mentioned_users = [u for u in message.mentions if u != user]
+    if mentioned_users:
+        return mentioned_users[0].id, mentioned_users[0].display_name
+
+    if message.reference and message.reference.resolved:
+        ref_author = message.reference.resolved.author
+        if ref_author != user:
+            return ref_author.id, ref_author.display_name
+
+    return None, None
+
+def viewTasksHandler(params, TOKEN):
+    pass
+
+def createTaskHandler(params, TOKEN):
+    task_name = params["name"]
+    task_desc = params["description"]
+    priority = params.get("priority") or 3
+    assignee_id = params.get("assignee_discord_id")
+
+    if assignee_id is None:
+        raise ValueError("Assignee missing")
+    if not params["team"]:
+        raise ValueError("Team missing")
+    if not params["list_name"]:
+        raise ValueError("List missing")
+    
+    list_value = getListId(params["team"], params["list_name"])
+    if list_value is None:
+        raise ValueError(f"List ID not found!")
+    LIST_ID = int(list_value)
+
+
+    task = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
+
+    if task is None:
+        return {
+            "message": "Failed to create task.",
+            "metadata": {}
+        }
+    
+    return {
+        "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
+        "metadata": {
+            "task_id": task["id"],
+            "task_name": task["name"],
+            "task_description": task.get("description"),
+            "priority":     task["priority"]["id"] if task["priority"] else None,
+            "status": task["status"]["status"],
+            "list_id": task["list"]["id"],
+            "team": task["project"]["name"],
+            "list_name": task["list"]["name"],
+            "url": task["url"],
+            "assignee_discord_id": assignee_id
+        }
+}
+
+def changeStatusHandler():
+    pass
+
+def summarizeConversationHandler():
+    pass
+
+def modifyTaskHandler():
+    pass

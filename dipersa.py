@@ -1,6 +1,11 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
+# need to create modify and viewtask handlers
+# Is an unassigned task something you want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
+# consider using aiohtttp incase multiple users want to use multiple request at the same time.
+# when doing modify tasks, add a check in  handler for that only the author of the task can modify it
+
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -43,6 +48,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 pending_status_changes = {}
 discussion_summary = {}
+bot_context = {}
 
 ##  Events
 @bot.event
@@ -53,7 +59,7 @@ async def on_ready():
         if bot.user is None:
             return
         
-        intro_channel = "commands"
+        intro_channel = "commands_test"
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
         channel_id = getChannel(intro_channel)
         
@@ -74,13 +80,92 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
+    if bot.user is None:
+        return
+
     if message.author == bot.user:
         return
 
-    if message.content.lower().startswith('hello'):
-        await message.channel.send('Hello!')
-    if message.content.lower().startswith('nice'):
-        await message.channel.send('very nice')
+    is_mention = bot.user in message.mentions
+    is_reply_to_bot = False
+    metadata = None
+    referenced_message = message.reference.resolved if message.reference else None
+
+    if message.reference and referenced_message is None:
+        try:
+            referenced_message = await message.channel.fetch_message(message.reference.message_id)
+        except discord.NotFound:
+            referenced_message = None
+    
+    if referenced_message:
+        print(f"Reply context found: {bot_context.get(referenced_message.id)}")
+        metadata = bot_context.get(referenced_message.id)
+        is_reply_to_bot = (referenced_message.author.id == bot.user.id)
+
+    if not is_mention and not is_reply_to_bot:
+        return
+
+    content = message.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+
+    if not content:
+        await message.reply("Hello! 👋")
+        return
+    
+    request_context = {"current_message": content, "referenced_message": referenced_message.content if referenced_message else None, "metadata": metadata}
+    assignee_id, assignee_name = findAssignee(message, bot.user)
+
+    try:
+        result = classifyIntent(request_context, message.author.id, message.author.display_name, assignee_id, assignee_name)
+        intent = result["intent"]
+        confidence = result["confidence"]
+        params = result["params"]
+
+        print(f"[handleRequest] intent={intent} confidence={confidence} params={params}")
+
+        if confidence == "low" or intent == "unclear":
+            question = result.get("clarifying_question") or "I'm not sure what you'd like me to do — could you clarify?"
+            bot_message = await message.reply(question)
+            bot_context[bot_message.id] = {"conversation_type": "clarification", "original_result": result}
+            return
+        
+        request_handlers = {
+            "view_tasks": viewTasksHandler,
+            "create_task": createTaskHandler,
+            "change_status": changeStatusHandler,
+            "summarize_conversation": summarizeConversationHandler,
+            "modify_task": modifyTaskHandler
+        }
+
+        handler = request_handlers.get(intent)
+
+        if handler is None:
+            await message.reply("I understood the intent but don't have a handler for it yet.")
+            return
+
+        result = handler(params, CLICKUP_TOKEN)
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Handler {intent} returned invalid result")
+        bot_message = await message.reply(result["message"])
+        bot_context[bot_message.id] = {
+            "intent": intent,
+            "requester_discord_id": message.author.id,
+            **result.get("metadata", {})
+        }
+
+    except RuntimeError as e:
+        if str(e) == "RATE_LIMIT":
+            await message.reply("Gemini is currently rate-limiting requests. Please try again in a moment.")
+            return
+        elif str(e) == "SERVICE_UNAVAILABLE":
+            await message.reply("Gemini is temporarily unavailable. Please try again later.")
+            return
+        elif str(e) == "QUOTA_EXCEEDED":
+            await message.reply("Gemini free-tier quota exhausted. Please try again later.")
+            return
+    except Exception as e:
+        print(e)
+        await message.reply(f"⚠️ Couldn't process that right now ({e}). Try again shortly.")
+        return
 
 # Commands
 @bot.tree.command(name="help", description="Display all Bot Comands", guild=ServerID)
