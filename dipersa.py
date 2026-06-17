@@ -1,7 +1,8 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
-#  Is an unassigned task something you want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
+# need to create modify and viewtask handlers
+# Is an unassigned task something you want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
 # consider using aiohtttp incase multiple users want to use multiple request at the same time.
 # when doing modify tasks, add a check in  handler for that only the author of the task can modify it
 
@@ -86,9 +87,6 @@ async def on_message(message):
         return
 
     is_mention = bot.user in message.mentions
-    if not is_mention and not message.reference:
-        return
-    
     is_reply_to_bot = False
     metadata = None
     referenced_message = message.reference.resolved if message.reference else None
@@ -104,7 +102,7 @@ async def on_message(message):
         metadata = bot_context.get(referenced_message.id)
         is_reply_to_bot = (referenced_message.author.id == bot.user.id)
 
-    if not is_reply_to_bot:
+    if not is_mention and not is_reply_to_bot:
         return
 
     content = message.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
