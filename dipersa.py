@@ -2,9 +2,10 @@
 # Author - Edidiong Ekong
 
 # need to create modify and viewtask handlers
-# Is an unassigned task something you want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
 # consider using aiohtttp incase multiple users want to use multiple request at the same time.
 # when doing modify tasks, add a check in  handler for that only the author of the task can modify it
+# Is an unassigned task something I want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
+# Improve error logging
 
 import discord
 from discord.ext import commands
@@ -59,7 +60,7 @@ async def on_ready():
         if bot.user is None:
             return
         
-        intro_channel = "commands_test"
+        intro_channel = "commands"
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
         channel_id = getChannel(intro_channel)
         
@@ -170,7 +171,7 @@ async def on_message(message):
 # Commands
 @bot.tree.command(name="help", description="Display all Bot Comands", guild=ServerID)
 async def help(interaction: discord.Interaction):
-    embed = discord.Embed(title="Dipersa Commands and Info", description="Here are all the commands I have and their descriptions.", color=discord.Color.blue())
+    embed = discord.Embed(title="Dipersa Commands and Info", description="Here are all the manual commands I have and their descriptions.", color=discord.Color.blue())
     embed.add_field(name="/signup", value="Connect your Discord user to your CLickUp user in the Spequlo Workspace", inline=False)
     embed.add_field( name="/assign-manual", value="Manually assign a task to a user on ClickUp.", inline=False)
     embed.add_field(name="/view-my-tasks", value="Get a list of all your tasks and their progress.", inline=False)
@@ -384,198 +385,5 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
         f"**Task:** {task['task_name']}\n"
         f"**New status:** {new_status}"
     )
-
-@bot.tree.command(name="summarize", description="Summarize recent messages", guild=ServerID)
-@checks.cooldown(1, 15.0)
-async def summarize(interaction: discord.Interaction, timeframe: str = "30m", context: str = ""):
-    await interaction.response.defer()
-    user = interaction.user
-    channel = interaction.channel
-
-    if channel is None:
-        await interaction.followup.send("No channel found.")
-        return
-    
-    if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.DMChannel)):
-        await interaction.followup.send("This command can only be used in a text channel.")
-        return
-
-    try:
-        cutoff = parseTimeframe(timeframe)
-    except ValueError:
-        await interaction.followup.send("Invalid timeframe. Use this format: 30m, 2h, 1d")
-        return
-    
-    messages = []
-
-    async for msg in channel.history(after=cutoff, limit=1000): 
-        if msg.author.bot:
-            continue
-
-        content = msg.content.strip()
-
-        if not content:
-            continue
-
-        messages.append(f"{msg.created_at.strftime('%H:%M')} - {msg.author.id} ({msg.author.display_name}): {content}")
-        
-    if not messages:
-        await interaction.followup.send(f"No messages found in the last {timeframe}")
-        return
-
-    messages.reverse()
-    transcript = "\n".join(messages)
-
-    result = None
-    try:
-        result = summarizeTranscript(transcript[-12000:], context)
-    except RuntimeError as e:
-        if str(e) == "RATE_LIMIT":
-            await interaction.followup.send("Gemini is currently rate-limiting requests. Please try again in a moment.")
-            return
-        elif str(e) == "SERVICE_UNAVAILABLE":
-            await interaction.followup.send("Gemini is temporarily unavailable. Please try again later.")
-            return
-        elif str(e) == "QUOTA_EXCEEDED":
-            await interaction.followup.send("Gemini free-tier quota exhausted. Please try again later.")
-            return
-    except Exception as e:
-        print(e)
-        await interaction.followup.send("Failed to generate summary.")
-        return
-    
-    if result is None:
-        await interaction.followup.send("Failed to generate summary.")
-        return
-        
-    cache_key = (user.id, channel.id)
-    discussion_summary[cache_key] = {
-        "transcript": transcript,
-        "summary": result["summary"],
-        "tasks": result["tasks"],
-        "participants": result.get("participants", []),
-        "confidence": result.get("confidence", {})
-    }
-
-    await interaction.followup.send(formatSummary(result))
-
-@bot.tree.command(name="revise-summary", description="Regenerate the created summary", guild=ServerID)
-@checks.cooldown(1, 15.0)
-async def reviseSummary(interaction: discord.Interaction, feedback: str):
-    await interaction.response.defer()
-    user = interaction.user
-    channel = interaction.channel
-    if channel is None:
-        await interaction.followup.send("No channel found.")
-        return
-        
-    cache_key = (user.id, channel.id)
-    data = discussion_summary.get(cache_key)
-
-    if not data:
-        await interaction.followup.send("No summary found. Run `/summarize` first")
-        return
-
-    transcript = data["transcript"]
-    old_summary = data["summary"]
-
-    new_summary = None
-
-    try:
-        new_summary = regenerateSummary(old_summary, transcript[-12000:], feedback)
-    except RuntimeError as e:
-        if str(e) == "RATE_LIMIT":
-            await interaction.followup.send("Gemini is currently rate-limiting requests. Please try again in a moment.")
-            return
-        elif str(e) == "SERVICE_UNAVAILABLE":
-            await interaction.followup.send("Gemini is temporarily unavailable. Please try again later.")
-            return
-        elif str(e) == "QUOTA_EXCEEDED":
-            await interaction.followup.send("Gemini free-tier quota exhausted. Please try again later.")
-            return
-    except Exception as e:
-        print(e)
-        await interaction.followup.send("Failed to generate summary.")
-        return
-    
-    if new_summary is None:
-        await interaction.followup.send("Failed to generate summary.")
-        return
-    
-    discussion_summary[cache_key] = {
-        "transcript": transcript,
-        "summary": new_summary["summary"],
-        "tasks": new_summary["tasks"],
-        "participants": new_summary.get("participants", []),
-        "confidence": new_summary.get("confidence", {})
-    }
-
-    await interaction.followup.send(formatSummary(new_summary))
-
-@bot.tree.command(name="create-tasks", description="Create tasks from a discussion summary", guild=ServerID)
-@app_commands.choices(
-    team=[    
-        app_commands.Choice(name="Mobile App", value="mobile_app"),
-        app_commands.Choice(name="Integration", value="integration"),
-        app_commands.Choice(name="Internal Tools", value="internal_tools"),
-        app_commands.Choice(name="Infrastructure", value="infrastructure"),
-        app_commands.Choice(name="Website", value="website")
-    ],
-    list=[
-        app_commands.Choice(name="Backlog", value="backlog"),
-        app_commands.Choice(name="Current Sprint", value="current_sprint"),
-        app_commands.Choice(name="Bugs", value="bugs")
-    ]
-)
-async def createTasks(interaction: discord.Interaction, team: str, list: str):
-    await interaction.response.defer()
-    user = interaction.user
-    channel = interaction.channel
-    if channel is None:
-        await interaction.followup.send("No channel found.")
-        return
-    
-    session = discussion_summary.get((user.id, channel.id))
-
-    if not session:
-        await interaction.followup.send("No discussion summary found. Run `/summarize` first.")
-        return
-
-    created = 0
-    failed = []
-
-    if team == "website":
-        list_value = getListId("website", "list")
-    else:
-        list_value = getListId(team, list)
-
-    if list_value is None:
-        raise ValueError(f"List ID not found for {team}")
-
-    list_id = int(list_value)
-
-    if list_id == 401:
-        await interaction.followup.send("Could not find the specified list.")
-        return
-
-    for task in session["tasks"]:
-        discord_id = task["assignee_discord_id"]
-        
-        if not discord_id:
-            failed.append(f"{task['name']} (No assignee)")
-            continue
-
-        code = createTask(CLICKUP_TOKEN, discord_id, task["name"], list_id, task["priority"], task["description"])
-        if code == 200:
-            created += 1
-        else:
-            failed.append(f"{task['name']} (Error {code})")
-
-    message = (f"Created {created} task(s)\n")
-
-    if failed:
-        message += ("\nFailed:\n" + "\n".join(failed))
-
-    await interaction.followup.send(message)
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
