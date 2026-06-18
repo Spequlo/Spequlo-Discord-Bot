@@ -10,25 +10,46 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
     member = getMember(userID)
 
     if not member:
-        return None
+        return {
+            "success": False,
+            "error": "USER_NOT_FOUND"
+        }
 
     task_data = {
         "name": str(task),
         "description": str(desc),
-        "priority": priority,
+        "priority": int(priority),
         "assignees": [int(member)]
     }
-
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
 
     headers = {
         "Authorization": TOKEN,
         "Content-Type": "application/json"
     }
-    response = requests.post(url, json=task_data, headers=headers)
-    if response.status_code not in (200, 201):
-        return None
-    return response.json()
+
+    try:
+        response = requests.post(url, json=task_data, headers=headers)
+        if response.status_code not in (200, 201):
+            try:
+                error_body = response.json()
+            except Exception:
+                error_body = response.text
+
+            return {
+                "success": False,
+                "status_code": response.status_code,
+                "error": error_body
+            }
+        return {
+            "success": True,
+            "data": response.json()
+        }
+    except requests.RequestException as e:
+        return{
+            "success": False,
+            "error": str(e)
+        }
 
 def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
     url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
@@ -217,6 +238,8 @@ def createTaskHandler(params, TOKEN):
     task_name = params["name"]
     task_desc = params["description"]
     priority = params.get("priority") or 3
+    if priority not in (1, 2, 3, 4):
+        priority = 3
     assignee_id = params.get("assignee_discord_id")
 
     if assignee_id is None:
@@ -232,14 +255,22 @@ def createTaskHandler(params, TOKEN):
     LIST_ID = int(list_value)
 
 
-    task = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
+    result = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
 
-    if task is None:
+    if not result["success"]:
+        if result.get("error") == "USER_NOT_FOUND":
+            return {
+                "message": ("I can't find the person you intended to assign this too. Please get them to signup with `/signup`."),
+                "metadata": {}
+            }
+        
         return {
-            "message": "Failed to create task.",
-            "metadata": {}
+            "message": ("Failed to create task. Error: {task.get('error')}"),
+            "metadata": {"status_code": result.get("status_code")}
         }
-    
+
+    task = result["data"]
+
     return {
         "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
         "metadata": {
@@ -254,7 +285,7 @@ def createTaskHandler(params, TOKEN):
             "url": task["url"],
             "assignee_discord_id": assignee_id
         }
-}
+    }
 
 def changeStatusHandler():
     pass
