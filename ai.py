@@ -16,7 +16,7 @@ Lists:
 - bugs: Mobile-specific issues and bug fixes.
 
 Team: integration
-Purpose: Integrations between Spequlo and external services, APIs, third-party platforms, and automation systems.
+Purpose: Integrations between Spequlo and external services, APIs, third-party platforms, deploying to third party platforms, and automation systems.
 
 Lists:
 - backlog: Planned integration work set aside for a later date.
