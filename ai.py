@@ -317,6 +317,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     - `view_tasks`: Request to view assigned tasks.
     - `create_task`: Explicit request to create a new task (Must have a clear action item, commitment, or agreed need. No brainstorming/passing ideas).
     - `change_status`: Request to update an existing task's status lifecycle.
+    - `modify_task`: Request to edit properties of an existing task (list, assignee, deadline, priority, title, description).
     - `summarize_conversation`: Request to read channel history and generate a summary text.
     - `unclear`: Request does not map cleanly, or critical data is missing.
 
@@ -362,7 +363,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
 
     <output_format>
     {{
-        "intent": "view_tasks | create_task | change_status | summarize_conversation | unclear",
+        "intent": "view_tasks | create_task | change_status | summarize_conversation | modify_task | unclear",
         "confidence": "high | medium | low",
         "params": {{
             "id": "string or null",
