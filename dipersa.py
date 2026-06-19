@@ -133,8 +133,8 @@ async def on_message(message):
             "view_tasks": viewTasksHandler,
             "create_task": createTaskHandler,
             "change_status": changeStatusHandler,
+            "modify_task": modifyTaskHandler,
             "summarize_conversation": summarizeConversationHandler,
-            "modify_task": modifyTaskHandler
         }
 
         handler = request_handlers.get(intent)
@@ -146,6 +146,7 @@ async def on_message(message):
         result = handler(params, CLICKUP_TOKEN)
         if not isinstance(result, dict):
             raise RuntimeError(f"Handler {intent} returned invalid result")
+        
         bot_message = await message.reply(result["message"])
         bot_context[bot_message.id] = {
             "intent": intent,
@@ -203,118 +204,6 @@ async def signUp(interaction: discord.Interaction, id: int):
 
     embed = discord.Embed(title="I couldn't find you on ClickUp", description=f"{user.mention}, Be sure you used the right ClickUp ID!", color=discord.Color.red())       
     await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="assign-manual", description="Manually assign a task to a user on ClickUp", guild=ServerID)
-@app_commands.choices(
-    team=[    
-        app_commands.Choice(name="Mobile App", value="mobile_app"),
-        app_commands.Choice(name="Integration", value="integration"),
-        app_commands.Choice(name="Internal Tools", value="internal_tools"),
-        app_commands.Choice(name="Infrastructure", value="infrastructure"),
-        app_commands.Choice(name="Website", value="website")
-    ],
-    list=[
-        app_commands.Choice(name="Backlog", value="backlog"),
-        app_commands.Choice(name="Current Sprint", value="current_sprint"),
-        app_commands.Choice(name="Bugs", value="bugs")
-    ],
-    priority=[
-        app_commands.Choice(name="Urgent", value="1"),
-        app_commands.Choice(name="High", value="2"),
-        app_commands.Choice(name="Normal", value="3"),
-        app_commands.Choice(name="Low", value="4")
-    ]
-)
-async def assignManual(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
-    if team == "website":
-        list_value = getListId("website", "list")
-    else:
-        list_value = getListId(team, list)
-
-    if list_value is None:
-        raise ValueError(f"List ID not found for {team}")
-
-    list_id = int(list_value)
-
-    code = createTask(CLICKUP_TOKEN, user.id, task, list_id, int(priority), desc)
-
-    #Change all these errors to be excpetions
-
-    if code == 401:
-        embed = discord.Embed(title="I couldn't find the list or space", description=f"{user.mention}. It looks like the list you wanted doesn't exist. Please contact the ClickUp Workspace Admin", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed)
-        return
-
-    if code == 402:
-        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the `/signup` command.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed)
-        return
-    
-    if code == 200:
-        embed = discord.Embed(title=f"Task Successfully Created", description=f"{task}.", color=discord.Color.green())
-        embed.add_field(name="Assigned to", value=f"{user.mention}")
-        await interaction.response.send_message(embed=embed)
-        return
-    
-    embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="view-my-tasks", description="Get a list of all your tasks and their progress", guild=ServerID)
-@app_commands.choices(
-    team=[    
-        app_commands.Choice(name="Mobile App", value="mobile_app"),
-        app_commands.Choice(name="Integration", value="integration"),
-        app_commands.Choice(name="Internal Tools", value="internal_tools"),
-        app_commands.Choice(name="Infrastructure", value="infrastructure"),
-        app_commands.Choice(name="Website", value="website")
-    ],
-    list_name=[
-        app_commands.Choice(name="Backlog", value="backlog"),
-        app_commands.Choice(name="Current Sprint", value="current_sprint"),
-        app_commands.Choice(name="Bugs", value="bugs")
-    ]
-)
-async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_name: str = ""): 
-    await interaction.response.defer() 
-    user = interaction.user
-
-    my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
-    try:
-        my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
-    except Exception as e:
-        await interaction.followup.send(str(e))
-        return
-    
-    messages = []
-    header = f"**Tasks for {user.mention}**\n"
-    current_message = header
-
-    for i, task in enumerate(my_tasks):
-        assignees = " ".join(f"<@{getMemberDiscord(a)}>" for a in task["assignees"])
-        creator = f"<@{getMemberDiscord(task["creator_id"])}>"
-
-        task_text = (
-            f"\n**Task {i + 1} — {task['task_name']}**\n"
-            f"**Team:** {task['folder']}\n"
-            f"**List:** {task['list']}\n"
-            f"**Status:** {task['status']}\n"
-            f"**Priority:** {task['priority']}\n"
-            f"**Deadline:** {task['deadline']}\n"
-            f"**Created By:** {creator}\n"
-            f"**Assigned To:** {assignees}\n"
-        )
-
-        if len(current_message) + len(task_text) > 1900:
-            messages.append(current_message)
-            current_message = task_text
-        else:
-            current_message += task_text
-
-    if current_message:
-        messages.append(current_message)
-
-    for message in messages:
-        await interaction.followup.send(message)   
 
 @bot.tree.command(name="change-status", description="Change the status of one of your tasks", guild=ServerID)
 async def changeStatus(interaction: discord.Interaction, task_number: int):

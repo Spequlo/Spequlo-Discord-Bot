@@ -6,6 +6,22 @@ from datetime import datetime, timedelta, timezone
 task_cache = {}
 CACHE_TTL = 60
 
+def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
+    url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
+    headers = {
+        "Authorization": TOKEN,
+    }
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        members = data['team']['members']
+        for member in members:
+            user_id = member['user']['id']
+            if userID == user_id:
+                return True     
+        return False
+
 def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
     member = getMember(userID)
 
@@ -51,23 +67,7 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
             "error": str(e)
         }
 
-def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
-    url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
-    headers = {
-        "Authorization": TOKEN,
-    }
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == 200:
-        data = response.json()
-        members = data['team']['members']
-        for member in members:
-            user_id = member['user']['id']
-            if userID == user_id:
-                return True     
-        return False
-
-def getTasks(TOKEN: str, userId: int, team: str, list: str):
+def getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
     FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure", "website"]
     LISTS = ["backlog", "current_sprint", "bugs"]
 
@@ -102,8 +102,24 @@ def getTasks(TOKEN: str, userId: int, team: str, list: str):
                 allTasks.extend(data["tasks"])
     if not allTasks:
         raise ValueError("You have no assigned tasks.")
-
     return allTasks
+
+def getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
+    cached = task_cache.get(user_id)
+
+    if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
+        return cached["tasks"]
+
+    tasks = getTasks(token, user_id, team, list_name)
+
+    if isinstance(tasks, list):
+        task_cache[user_id] = {
+            "tasks": list(simplifyTasks(tasks)),
+            "fetched_at": time.time()
+        }
+        return task_cache[user_id]["tasks"]
+
+    return tasks
 
 def simplifyTasks(tasks: list):
     simplified = []
@@ -130,6 +146,7 @@ def simplifyTasks(tasks: list):
 
     return simplified
 
+
 def getListStatuses(TOKEN: str, LIST_ID: str):
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}"
     headers = {"Authorization": TOKEN}
@@ -151,23 +168,6 @@ def updateTaskStatus(TOKEN: str, TASK_ID: str, new_status: str):
         raise PermissionError(f"Failed to update the task status. Please contact a dev. {response.status_code}")
     
     return 200
-
-def getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
-    cached = task_cache.get(user_id)
-
-    if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
-        return cached["tasks"]
-
-    tasks = getTasks(token, user_id, team, list_name)
-
-    if isinstance(tasks, list):
-        task_cache[user_id] = {
-            "tasks": list(simplifyTasks(tasks)),
-            "fetched_at": time.time()
-        }
-        return task_cache[user_id]["tasks"]
-
-    return tasks
 
 def invalidateTaskCache(user_id: int):
     task_cache.pop(user_id, None)
@@ -231,8 +231,14 @@ def findAssignee(message, user) -> tuple[int | None, str | None]:
 
     return None, None
 
-def viewTasksHandler(params, TOKEN):
-    pass
+async def viewTasksHandler(params, TOKEN):
+    member_id = params["assignee_discord_id"]
+    tasks = getCachedTasks(TOKEN, member_id)
+
+    return {
+        "message": f'Here are all your tasks: \n[t["task_name"] for t in tasks]',
+        "metadata": tasks
+    }
 
 def createTaskHandler(params, TOKEN):
     task_name = params["name"]
@@ -253,7 +259,6 @@ def createTaskHandler(params, TOKEN):
     if list_value is None:
         raise ValueError(f"List ID not found!")
     LIST_ID = int(list_value)
-
 
     result = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
 
@@ -287,7 +292,7 @@ def createTaskHandler(params, TOKEN):
         }
     }
 
-def changeStatusHandler():
+def changeStatusHandler(params, TOKEN):
     pass
 
 def summarizeConversationHandler():
