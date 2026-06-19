@@ -1,22 +1,17 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
-# need to create modify and viewtask handlers
 # consider using aiohtttp incase multiple users want to use multiple request at the same time.
-# when doing modify tasks, add a check in  handler for that only the author of the task can modify it
-# Is an unassigned task something I want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
-# Improve error logging
+# run through the code base for refactoring, particularly with metadata restructuring to ensure contet is preserved. Need to restructure the meta data and cache better to persist more cleanly.
+# Need to us a uniform data structure and names crross all achesc, metadata, and json llm outputs.
+# add a task check for modify task where the user has to have the bot grab all their tasks first, before being able to modify unless the task already exists in the bots cache or metadata.
 
 import discord
 from discord.ext import commands
-from discord import app_commands
-from discord.app_commands import checks
 import logging 
 from dotenv import load_dotenv
 import os
-from server import *
 from help import *
-from ai import *
 
 load_dotenv()
 
@@ -38,7 +33,6 @@ if WORKSPACE_ID_STR is None:
     raise ValueError("CLICKUP_WORKSPACE_ID is not set")
 CLICKUP_WORKSPACE_ID = int(WORKSPACE_ID_STR)
 
-
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
 intents.message_content = True
@@ -47,8 +41,6 @@ intents.members = True
 ServerID = discord.Object(id=int(DISCORD_SERVER_ID))
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-pending_status_changes = {}
-discussion_summary = {}
 bot_context = {}
 
 ##  Events
@@ -60,7 +52,7 @@ async def on_ready():
         if bot.user is None:
             return
         
-        intro_channel = "commands"
+        intro_channel = "commands_test"
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
         channel_id = getChannel(intro_channel)
         
@@ -132,10 +124,13 @@ async def on_message(message):
         request_handlers = {
             "view_tasks": viewTasksHandler,
             "create_task": createTaskHandler,
-            "change_status": changeStatusHandler,
+            "modify_task": modifyTaskHandler,
             "summarize_conversation": summarizeConversationHandler,
-            "modify_task": modifyTaskHandler
+            "bot_info": helpHandler
         }
+
+        if intent == "summarize_conversation":
+            params["transcript"] = await buildTranscript(message, params)
 
         handler = request_handlers.get(intent)
 
@@ -144,8 +139,11 @@ async def on_message(message):
             return
 
         result = handler(params, CLICKUP_TOKEN)
+        logging.info("Handler Result: %s", json.dumps(result["metadata"], indent=2))
+
         if not isinstance(result, dict):
             raise RuntimeError(f"Handler {intent} returned invalid result")
+        
         bot_message = await message.reply(result["message"])
         bot_context[bot_message.id] = {
             "intent": intent,
@@ -173,13 +171,6 @@ async def on_message(message):
 async def help(interaction: discord.Interaction):
     embed = discord.Embed(title="Dipersa Commands and Info", description="Here are all the manual commands I have and their descriptions.", color=discord.Color.blue())
     embed.add_field(name="/signup", value="Connect your Discord user to your CLickUp user in the Spequlo Workspace", inline=False)
-    embed.add_field( name="/assign-manual", value="Manually assign a task to a user on ClickUp.", inline=False)
-    embed.add_field(name="/view-my-tasks", value="Get a list of all your tasks and their progress.", inline=False)
-    embed.add_field(name="/change-status", value="Change the status of one of your tasks.", inline=False)
-    embed.add_field(name="/confirm-status", value="Confirm the new status for a selected task.", inline=False)
-    embed.add_field(name="/summarize", value="Summarize and create tasks from discord conversations over a timeframe using AI.", inline=False)
-    embed.add_field(name="/revise-summary", value="Regenerate the created summary and tasks using user feedback.", inline=False)
-    embed.add_field(name="/create-tasks", value="Confirm the creation of the AI genrated tasks on ClickUp.", inline=False)
     embed.add_field(name="/help", value="Display all the bot commands", inline=False)
     embed.set_footer(text="Thank you for using Dipersa.")   
 
@@ -188,7 +179,7 @@ async def help(interaction: discord.Interaction):
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
     user = interaction.user
-    member = getMember(user.id)
+    member = getClickUpId(user.id)
 
     if member:
         embed = discord.Embed(title=f"You already signed up.", description="You're already a member on clickup", color=discord.Color.red())
@@ -204,186 +195,46 @@ async def signUp(interaction: discord.Interaction, id: int):
     embed = discord.Embed(title="I couldn't find you on ClickUp", description=f"{user.mention}, Be sure you used the right ClickUp ID!", color=discord.Color.red())       
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="assign-manual", description="Manually assign a task to a user on ClickUp", guild=ServerID)
-@app_commands.choices(
-    team=[    
-        app_commands.Choice(name="Mobile App", value="mobile_app"),
-        app_commands.Choice(name="Integration", value="integration"),
-        app_commands.Choice(name="Internal Tools", value="internal_tools"),
-        app_commands.Choice(name="Infrastructure", value="infrastructure"),
-        app_commands.Choice(name="Website", value="website")
-    ],
-    list=[
-        app_commands.Choice(name="Backlog", value="backlog"),
-        app_commands.Choice(name="Current Sprint", value="current_sprint"),
-        app_commands.Choice(name="Bugs", value="bugs")
-    ],
-    priority=[
-        app_commands.Choice(name="Urgent", value="1"),
-        app_commands.Choice(name="High", value="2"),
-        app_commands.Choice(name="Normal", value="3"),
-        app_commands.Choice(name="Low", value="4")
-    ]
-)
-async def assignManual(interaction: discord.Interaction, user: discord.Member, task: str, team: str, list: str, priority: str, desc: str = ""): 
-    if team == "website":
-        list_value = getListId("website", "list")
-    else:
-        list_value = getListId(team, list)
-
-    if list_value is None:
-        raise ValueError(f"List ID not found for {team}")
-
-    list_id = int(list_value)
-
-    code = createTask(CLICKUP_TOKEN, user.id, task, list_id, int(priority), desc)
-
-    #Change all these errors to be excpetions
-
-    if code == 401:
-        embed = discord.Embed(title="I couldn't find the list or space", description=f"{user.mention}. It looks like the list you wanted doesn't exist. Please contact the ClickUp Workspace Admin", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed)
-        return
-
-    if code == 402:
-        embed = discord.Embed(title=f"{user.name} needs to sign up first", description=f"Please get {user.mention} to sign up with me using the `/signup` command.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed)
-        return
-    
-    if code == 200:
-        embed = discord.Embed(title=f"Task Successfully Created", description=f"{task}.", color=discord.Color.green())
-        embed.add_field(name="Assigned to", value=f"{user.mention}")
-        await interaction.response.send_message(embed=embed)
-        return
-    
-    embed = discord.Embed(title=f"Error assigning the Task", description="Looks like there was an error while trying to assign the task. Please contact a dev.", color=discord.Color.red())
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="view-my-tasks", description="Get a list of all your tasks and their progress", guild=ServerID)
-@app_commands.choices(
-    team=[    
-        app_commands.Choice(name="Mobile App", value="mobile_app"),
-        app_commands.Choice(name="Integration", value="integration"),
-        app_commands.Choice(name="Internal Tools", value="internal_tools"),
-        app_commands.Choice(name="Infrastructure", value="infrastructure"),
-        app_commands.Choice(name="Website", value="website")
-    ],
-    list_name=[
-        app_commands.Choice(name="Backlog", value="backlog"),
-        app_commands.Choice(name="Current Sprint", value="current_sprint"),
-        app_commands.Choice(name="Bugs", value="bugs")
-    ]
-)
-async def viewMyTasks(interaction: discord.Interaction, team: str = "", list_name: str = ""): 
-    await interaction.response.defer() 
-    user = interaction.user
-
-    my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
-    try:
-        my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id, team, list_name)
-    except Exception as e:
-        await interaction.followup.send(str(e))
-        return
-    
-    messages = []
-    header = f"**Tasks for {user.mention}**\n"
-    current_message = header
-
-    for i, task in enumerate(my_tasks):
-        assignees = " ".join(f"<@{getMemberDiscord(a)}>" for a in task["assignees"])
-        creator = f"<@{getMemberDiscord(task["creator_id"])}>"
-
-        task_text = (
-            f"\n**Task {i + 1} — {task['task_name']}**\n"
-            f"**Team:** {task['folder']}\n"
-            f"**List:** {task['list']}\n"
-            f"**Status:** {task['status']}\n"
-            f"**Priority:** {task['priority']}\n"
-            f"**Deadline:** {task['deadline']}\n"
-            f"**Created By:** {creator}\n"
-            f"**Assigned To:** {assignees}\n"
-        )
-
-        if len(current_message) + len(task_text) > 1900:
-            messages.append(current_message)
-            current_message = task_text
-        else:
-            current_message += task_text
-
-    if current_message:
-        messages.append(current_message)
-
-    for message in messages:
-        await interaction.followup.send(message)   
-
-@bot.tree.command(name="change-status", description="Change the status of one of your tasks", guild=ServerID)
-async def changeStatus(interaction: discord.Interaction, task_number: int):
-    await interaction.response.defer()
-    user = interaction.user
-
-    try:
-        my_tasks = getCachedTasks(CLICKUP_TOKEN, user.id)
-    except Exception as e:
-        await interaction.followup.send(str(e))
-        return
-    
-    if task_number < 1 or task_number > len(my_tasks):
-        await interaction.followup.send(f" Invalid task number. You have {len(my_tasks)} tasks — pick a number between 1 and {len(my_tasks)}.")
-        return
-
-    selected_task = my_tasks[task_number - 1]
-
-    statuses = getListStatuses(CLICKUP_TOKEN, selected_task["list_id"])
-
-    if statuses == 401:
-        await interaction.followup.send("Couldn't fetch statuses for that task's list. Please contact a dev.")
-        return
-
-    pending_status_changes[user.id] = {
-        "task": selected_task,
-        "statuses": statuses
-    }
-
-    status_list = "\n".join(f"**{i + 1}.** {s}" for i, s in enumerate(statuses))
-    await interaction.followup.send(
-        f"**Changing status for:** {selected_task['task_name']}\n"
-        f"**Current status:** {selected_task['status']}\n"
-        f"\n**Available statuses:**\n{status_list}\n"
-        f"\nUse `/confirmstatus <number>` to confirm."
-    )
-
-@bot.tree.command(name="confirm-status", description="Confirm the new status for your task", guild=ServerID)
-async def confirmStatus(interaction: discord.Interaction, status_number: int):
-    await interaction.response.defer()
-    user = interaction.user
-
-    if user.id not in pending_status_changes:
-        await interaction.followup.send("No pending status change found. Use `/changestatus` first.")
-        return
-
-    pending = pending_status_changes[user.id]
-    statuses = pending["statuses"]
-    task = pending["task"]
-
-    if status_number < 1 or status_number > len(statuses):
-        await interaction.followup.send(f"Invalid status number. Pick a number between 1 and {len(statuses)}.")
-        return
-
-    new_status = statuses[status_number - 1]
-
-    try:
-        result = updateTaskStatus(CLICKUP_TOKEN, task["task_id"], new_status)
-    except Exception as e:
-        await interaction.followup.send(str(e))
-        return
-    
-    del pending_status_changes[user.id]
-    invalidateTaskCache(user.id)
-
-    await interaction.followup.send(
-        f"**Status updated!**\n"
-        f"**Task:** {task['task_name']}\n"
-        f"**New status:** {new_status}"
-    )
-
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
+
+async def buildTranscript(message, params):
+    mode = params.get("mode", "count")
+    raw_messages = []
+
+    def format_message(msg):
+        content = msg.content.strip()
+
+        if msg.attachments:
+            attachment_names = ", ".join(attachment.filename for attachment in msg.attachments)
+            content += f" [Attachments: {attachment_names}]"
+
+        if msg.reference:
+            content = f"[Reply] {content}"
+
+        return (f"{msg.created_at.strftime('%Y-%m-%d %H:%M')} - {msg.author.id} ({msg.author.display_name}): {content}")
+
+    if mode == "timeframe":
+        cutoff = parseTimeframe(params.get("timeframe"))
+
+        async for msg in message.channel.history(after=cutoff, limit=1000):
+            if msg.content.strip() or msg.attachments:
+                raw_messages.append(format_message(msg))
+    elif mode == "anchor":
+        if not message.reference:
+            return None
+
+        anchor = await message.channel.fetch_message(message.reference.message_id)
+
+        async for msg in message.channel.history(after=anchor, limit=1000):
+            if msg.content.strip() or msg.attachments:
+                raw_messages.append(format_message(msg))
+    else:
+        count = int(params.get("count") or 100)
+
+        async for msg in message.channel.history(limit=count):
+            if msg.content.strip() or msg.attachments:
+                raw_messages.append(format_message(msg))
+
+    raw_messages.reverse()
+
+    return "\n".join(raw_messages)

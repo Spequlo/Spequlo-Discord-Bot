@@ -1,13 +1,303 @@
 import requests
 import time
 from server import *
+from ai import *
 from datetime import datetime, timedelta, timezone
 
 task_cache = {}
-CACHE_TTL = 60
+CACHE_TTL = 3600
 
-def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
-    member = getMember(userID)
+def findAssignee(message, user) -> tuple[int | None, str | None]:
+    mentioned_users = [u for u in message.mentions if u != user]
+    if mentioned_users:
+        return mentioned_users[0].id, mentioned_users[0].display_name
+
+    if message.reference and message.reference.resolved:
+        ref_author = message.reference.resolved.author
+        if ref_author != user:
+            return ref_author.id, ref_author.display_name
+
+    return None, None
+
+def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
+    url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
+    headers = {
+        "Authorization": TOKEN,
+    }
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        members = data['team']['members']
+        for member in members:
+            user_id = member['user']['id']
+            if userID == user_id:
+                return True     
+        return False
+
+def parseTimeframe(timeframe: str):
+    if timeframe.lower() == "today":
+        now = datetime.now(timezone.utc)
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    value = int(timeframe[:-1])
+    unit = timeframe[-1].lower()
+
+    if unit == "s":
+        return datetime.now(timezone.utc) - timedelta(seconds=value)
+    if unit == "m":
+        return datetime.now(timezone.utc) - timedelta(minutes=value)
+    if unit == "h":
+        return datetime.now(timezone.utc) - timedelta(hours=value)
+    if unit == "d":
+        return datetime.now(timezone.utc) - timedelta(days=value)
+    if unit == "w":
+        return datetime.now(timezone.utc) - timedelta(weeks=value)
+
+    raise ValueError("Invalid timeframe")
+
+async def viewTasksHandler(params, TOKEN):
+    member_id = params["assignee_discord_id"]
+    tasks = _getCachedTasks(TOKEN, member_id)
+
+    return {
+        "message": f'Here are all your tasks: \n{[t["task_name"] for t in tasks]}',
+        "metadata": tasks
+    }
+
+def createTaskHandler(params, TOKEN):
+    task_name = params["name"]
+    task_desc = params["description"]
+    priority = params.get("priority") or 3
+    if priority not in (1, 2, 3, 4):
+        priority = 3
+    assignee_id = params.get("assignee_discord_id")
+
+    if assignee_id is None:
+        raise ValueError("Assignee missing")
+    if not params["team"]:
+        raise ValueError("Team missing")
+    if not params["list_name"]:
+        raise ValueError("List missing")
+    
+    list_value = getListId(params["team"], params["list_name"])
+    if list_value is None:
+        raise ValueError(f"List ID not found!")
+    LIST_ID = int(list_value)
+
+    result = _createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
+
+    if not result["success"]:
+        if result.get("error") == "USER_NOT_FOUND":
+            return {
+                "message": ("I can't find the person you intended to assign this too. Please get them to signup with `/signup`."),
+                "metadata": {}
+            }
+        
+        return {
+            "message": ("Failed to create task. Error: {task.get('error')}"),
+            "metadata": {"status_code": result.get("status_code")}
+        }
+
+    task = result["data"]
+
+    return {
+        "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
+        "metadata": {
+            "task_id": task["id"],
+            "task_name": task["name"],
+            "task_description": task.get("description"),
+            "priority":     task["priority"]["id"] if task["priority"] else None,
+            "status": task["status"]["status"],
+            "list_id": task["list"]["id"],
+            "team": task["project"]["name"],
+            "list_name": task["list"]["name"],
+            "url": task["url"],
+            "assignee_discord_id": assignee_id,
+            "creator_id": params["requestor_id"]
+        }
+    }
+
+def modifyTaskHandler(params, TOKEN):
+    creator_id = str(params.get("creator_id"))
+    requester_id = str(params.get("requester_discord_id"))
+
+    if creator_id and requester_id != creator_id:
+        return {
+            "message": "Only the task creator can modify this task.",
+            "metadata": {
+                "creator_id": creator_id,
+                "requester_id": requester_id
+            }
+        }
+
+    update_payload = {}
+    changes_made = []
+    changes = params.get("changes", {})
+
+    LIST_ID = None
+    if changes.get("team") and changes.get("list_name"):
+        list_value = getListId(changes["team"], changes["list_name"])
+        if list_value is None:
+            return {
+                "message": "I couldn't find that destination list.",
+                "metadata": {}
+            }
+        LIST_ID = int(list_value)
+
+    if not _findTask(TOKEN, params['task_id']):
+        user_id = changes.get("assignee_discord_id")
+        task_name = (changes.get("name") or params.get("task_name"))
+
+        if LIST_ID is None:
+            raise ValueError(f"List ID not found!")
+
+        result = _createTask(TOKEN, user_id, task_name, LIST_ID, changes.get("priority"), changes.get("description"))
+        if not result["success"]:
+            if result.get("error") == "USER_NOT_FOUND":
+                return {
+                    "message": ("I can't find the person you intended to assign this too. Please get them to signup with `/signup`."),
+                    "metadata": {}
+                }
+            
+            return {
+                "message": ("Failed to create task. Error: {task.get('error')}"),
+                "metadata": {"status_code": result.get("status_code")}
+            }
+
+        task = result["data"]
+        task_cache.pop(changes.get("assignee_discord_id"), None)
+
+        return {
+            "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
+            "metadata": {
+                "task_id": task["id"],
+                "task_name": task["name"],
+                "task_description": task.get("description"),
+                "priority":     task["priority"]["id"] if task["priority"] else None,
+                "status": task["status"]["status"],
+                "list_id": task["list"]["id"],
+                "team": task["project"]["name"],
+                "list_name": task["list"]["name"],
+                "url": task["url"],
+                "assignee_discord_id": changes.get("assignee_discord_id"),
+                "creator_id": params["creator_id"]
+            }
+        }
+
+    if changes.get("name"):
+        update_payload["name"] = str(changes["name"])
+        changes_made.append(f"renamed to '{changes['name']}'")
+
+    if changes.get("description"):
+        update_payload["description"] = str(changes["description"])
+        changes_made.append( "description updated")
+       
+    if changes.get("assignee_discord_id"):
+        clickup_id = getClickUpId(changes["assignee_discord_id"])
+        if clickup_id is None:
+            return {
+                "message": "USER_NOT_FOUND",
+                "metadate": ""
+            }
+        update_payload["assignees"] = [int(clickup_id)]
+        changes_made.append(f"assigned to {changes['assignee_name']}")
+
+    if changes.get("priority"):
+        update_payload["priority"] = int(changes["priority"])
+        priority_map = {
+            "1": "Urgent",
+            "2": "High",
+            "3": "Normal",
+            "4": "Low"
+        }
+        changes_made.append(f"priority set to {priority_map.get(changes['priority'])}")
+    
+    # if changes.get("deadline"):
+    #     update_payload["due_date"] = changes["deadline"]
+    #     changes_made.append(f"deadline set to {changes['deadline']}")
+  
+    if not update_payload:
+        return {
+            "message": "No changes were specified.",
+            "metadata": params
+        }
+    
+    try:
+        result = _updateTask(TOKEN, params['task_id'], update_payload)
+        if LIST_ID:
+            move_result = _moveTask(TOKEN, params["task_id"], LIST_ID)
+            if move_result["success"]:
+                changes_made.append(f"moved to {changes['team']} → {changes['list_name']}")
+            else:
+                return {
+                    "message": "Task updated but failed to move lists.",
+                    "metadata": move_result
+                }
+    except Exception as e:
+        return {
+            "message": f"Failed to update task: {str(e)}",
+            "metadata": {}
+        }
+
+    task_cache.pop(changes.get("assignee_discord_id"), None)
+    return {
+        "message": (f"✅ Updated task '{params['task_name']}'\n"  + "\n".join(f"• {c}" for c in changes_made)),
+        "metadata": {
+            "task_id": params["task_id"],
+            "task_name": changes.get("name", params["task_name"]),
+            "update_payload": update_payload,
+            "changes": changes,
+            "update_result": result
+        }
+    }
+
+def summarizeConversationHandler(params, TOKEN):
+    transcript = params["transcript"]
+    result = summarizeTranscript(transcript[-12000:])
+
+    summary = result.get("summary", "No summary generated.")
+    action_items = result.get("action_items", [])
+    open_questions = result.get("open_questions", [])
+
+    message = f"## 📝 Conversation Summary\n\n{summary}"
+
+    if action_items:
+        message += "\n\n### ✅ Action Items"
+        for item in action_items:
+            message += f"\n• {item}"
+
+    if open_questions:
+        message += "\n\n### ❓ Open Questions"
+        for question in open_questions:
+            message += f"\n• {question}"
+
+    return {
+        "message": message, 
+        "metadata":{     
+            "summary_response": result,
+            "transcript_length": len(transcript)
+        }
+    }
+
+def helpHandler(params, TOKEN):
+    return{
+        "message": (
+            "I can help manage ClickUp tasks. Just tell me what you want :)\n\n"
+            "**Examples for how to use me**\n"
+            "• @bot create a task to add OAuth support\n"
+            "• @bot assign this task to @OnlyRafael\n"
+            "• @bot move this to backlog\n"
+            "• @bot show my tasks\n"
+            "• @bot show @DrexRegion's tasks\n"
+            "• @bot summarize the last 50 messages\n"
+            "• @bot what did they talk about today\n"
+        ),
+        "metadata": {}
+    }
+
+def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
+    member = getClickUpId(userID)
 
     if not member:
         return {
@@ -51,27 +341,11 @@ def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, 
             "error": str(e)
         }
 
-def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
-    url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
-    headers = {
-        "Authorization": TOKEN,
-    }
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == 200:
-        data = response.json()
-        members = data['team']['members']
-        for member in members:
-            user_id = member['user']['id']
-            if userID == user_id:
-                return True     
-        return False
-
-def getTasks(TOKEN: str, userId: int, team: str, list: str):
+def _getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
     FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure", "website"]
     LISTS = ["backlog", "current_sprint", "bugs"]
 
-    member = getMember(userId)
+    member = getClickUpId(userId)
     if not member:
         raise ValueError("No member found. Ensure you have linked your ClickUp account.")
     
@@ -102,10 +376,26 @@ def getTasks(TOKEN: str, userId: int, team: str, list: str):
                 allTasks.extend(data["tasks"])
     if not allTasks:
         raise ValueError("You have no assigned tasks.")
-
     return allTasks
 
-def simplifyTasks(tasks: list):
+def _getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
+    cached = task_cache.get(user_id)
+
+    if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
+        return cached["tasks"]
+
+    tasks = _getTasks(token, user_id, team, list_name)
+
+    if isinstance(tasks, list):
+        task_cache[user_id] = {
+            "tasks": list(_simplifyTasks(tasks)),
+            "fetched_at": time.time()
+        }
+        return task_cache[user_id]["tasks"]
+
+    return tasks
+
+def _simplifyTasks(tasks: list):
     simplified = []
 
     for task in tasks:
@@ -130,168 +420,51 @@ def simplifyTasks(tasks: list):
 
     return simplified
 
-def getListStatuses(TOKEN: str, LIST_ID: str):
-    url = f"https://api.clickup.com/api/v2/list/{LIST_ID}"
-    headers = {"Authorization": TOKEN}
-    response = requests.get(url, headers=headers)
+def _findTask(TOKEN: str, task_id: str):
+    url = f"https://api.clickup.com/api/v2/task/{task_id}"
+    headers={"Authorization": TOKEN}
 
+    response = requests.get(url, headers)
     if response.status_code != 200:
-        return 401
-    
-    data = response.json()
-    return [s["status"] for s in data["statuses"]]
+        return None
 
-def updateTaskStatus(TOKEN: str, TASK_ID: str, new_status: str):
-    url = f"https://api.clickup.com/api/v2/task/{TASK_ID}"
-    headers = {"Authorization": TOKEN, "Content-Type": "application/json"}
-    payload = {"status": new_status}
-    response = requests.put(url, headers=headers, json=payload)
+    return response.json()
 
-    if response.status_code != 200:
-        raise PermissionError(f"Failed to update the task status. Please contact a dev. {response.status_code}")
-    
-    return 200
-
-def getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
-    cached = task_cache.get(user_id)
-
-    if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
-        return cached["tasks"]
-
-    tasks = getTasks(token, user_id, team, list_name)
-
-    if isinstance(tasks, list):
-        task_cache[user_id] = {
-            "tasks": list(simplifyTasks(tasks)),
-            "fetched_at": time.time()
-        }
-        return task_cache[user_id]["tasks"]
-
-    return tasks
-
-def invalidateTaskCache(user_id: int):
-    task_cache.pop(user_id, None)
-
-def parseTimeframe(timeframe: str):
-    value = int(timeframe[:-1])
-    unit = timeframe[-1].lower()
-
-    if unit == "s":
-        return datetime.now(timezone.utc) - timedelta(seconds=value)
-    if unit == "m":
-        return datetime.now(timezone.utc) - timedelta(minutes=value)
-    if unit == "h":
-        return datetime.now(timezone.utc) - timedelta(hours=value)
-    if unit == "d":
-        return datetime.now(timezone.utc) - timedelta(days=value)
-    if unit == "w":
-        return datetime.now(timezone.utc) - timedelta(weeks=value)
-
-    raise ValueError("Invalid timeframe")
-
-def formatSummary(result: dict):
-    participants = "\n".join(f"• {p}" for p in result["participants"])
-
-    tasks = ""
-
-    for i, task in enumerate(result["tasks"], start=1):
-        tasks += (
-            f"\n{i}. {task['name']}\n"
-            f"   Assigned: <@{task['assignee_discord_id']}>\n"
-            f"   Details: {task['description']}\n"
-            f"   Deadline: {datetime.strptime(task["deadline"], "%Y-%m-%d").strftime("%b %d, %Y") if task["deadline"] else "Not Specified"}"
-            f"   Priority: {task['priority']}\n"
-        )
-
-    ambiguities = result["confidence"].get("ambiguities", [])
-    ambiguity_text = "\n".join(f"• {item}" for item in ambiguities) if ambiguities else "None"
-
-    return (
-        f"**Discussion Summary**\n\n"
-        f"**Participants**\n"
-        f"{participants}\n\n"
-        f"**Summary**\n"
-        f"{result['summary']}\n\n"
-        f"**Action Items**\n"
-        f"{tasks if tasks else 'No action items found.'}\n\n"
-        f"**Confidence**: {result['confidence']['owner_confidence']}\n\n"
-        f"**Ambiguities**\n"
-        f"{ambiguity_text}"
-    )
-
-def findAssignee(message, user) -> tuple[int | None, str | None]:
-    mentioned_users = [u for u in message.mentions if u != user]
-    if mentioned_users:
-        return mentioned_users[0].id, mentioned_users[0].display_name
-
-    if message.reference and message.reference.resolved:
-        ref_author = message.reference.resolved.author
-        if ref_author != user:
-            return ref_author.id, ref_author.display_name
-
-    return None, None
-
-def viewTasksHandler(params, TOKEN):
-    pass
-
-def createTaskHandler(params, TOKEN):
-    task_name = params["name"]
-    task_desc = params["description"]
-    priority = params.get("priority") or 3
-    if priority not in (1, 2, 3, 4):
-        priority = 3
-    assignee_id = params.get("assignee_discord_id")
-
-    if assignee_id is None:
-        raise ValueError("Assignee missing")
-    if not params["team"]:
-        raise ValueError("Team missing")
-    if not params["list_name"]:
-        raise ValueError("List missing")
-    
-    list_value = getListId(params["team"], params["list_name"])
-    if list_value is None:
-        raise ValueError(f"List ID not found!")
-    LIST_ID = int(list_value)
-
-
-    result = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
-
-    if not result["success"]:
-        if result.get("error") == "USER_NOT_FOUND":
-            return {
-                "message": ("I can't find the person you intended to assign this too. Please get them to signup with `/signup`."),
-                "metadata": {}
-            }
-        
-        return {
-            "message": ("Failed to create task. Error: {task.get('error')}"),
-            "metadata": {"status_code": result.get("status_code")}
-        }
-
-    task = result["data"]
-
-    return {
-        "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
-        "metadata": {
-            "task_id": task["id"],
-            "task_name": task["name"],
-            "task_description": task.get("description"),
-            "priority":     task["priority"]["id"] if task["priority"] else None,
-            "status": task["status"]["status"],
-            "list_id": task["list"]["id"],
-            "team": task["project"]["name"],
-            "list_name": task["list"]["name"],
-            "url": task["url"],
-            "assignee_discord_id": assignee_id
-        }
+def _updateTask(TOKEN: str, task_id: int, payload: dict):
+    url = f"https://api.clickup.com/api/v2/task/{task_id}"
+    headers={
+        "Authorization": TOKEN,
+        "Content-Type": "application/json"
     }
 
-def changeStatusHandler():
-    pass
+    response = requests.put(url, headers, json=payload)
 
-def summarizeConversationHandler():
-    pass
+    try:
+        body = response.json()
+    except Exception:
+        body = {}
 
-def modifyTaskHandler():
-    pass
+    return {
+        "status_code": response.status_code,
+        "success": response.status_code == 200,
+        "response": body
+    }
+
+def _moveTask(TOKEN: str, TASK_ID: str, LIST_ID: int):
+    url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task/{TASK_ID}"
+    headers={
+        "Authorization": TOKEN,
+        "Content-Type": "application/json"
+    }
+    response = requests.post(url, headers)
+
+    try:
+        body = response.json()
+    except Exception:
+        body = {}
+
+    return {
+        "success": response.status_code in (200, 201),
+        "status_code": response.status_code,
+        "response": body
+    }

@@ -70,233 +70,12 @@ Examples:
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-def summarizeTranscript(transcript: str, context: str):
-    prompt = f"""
-    You are a project management assistant analyzing a Discord conversation to extract actionable tasks for a ClickUp Workspace.
-
-    Transcript:
-    {transcript}
-
-    Context:
-    {context}
-
-    ---
-    
-    ## Your Goal
-    
-    Identify every action item — both explicit and inferred — that a team member must complete.
-
-    **Explicit tasks** — directly stated commitments, assignments, or responsibilities:
-    - "I'll create the documentation by Friday"
-    - "Can you handle the deployment?" / "Sure"
-    - "John owns the onboarding doc"
-
-    **Inferred tasks** — gaps or blockers the conversation reveals that the team implicitly agrees must be resolved, even if no one is assigned:
-    - "Nobody knows how deployment works" → Create deployment documentation
-    - "We need a test environment" → Set up test environment
-    - "People keep asking for credentials" → Document credential access process
-
-    ---
-
-    ## Message Format
-
-    Each message follows this format:
-        HH:MM - DISCORD_ID (DISPLAY_NAME): message
-        Example: 15:30 - 123456789 (John): How do you deploy to spotify.
-
-    ---
-    
-    ## Rules
-
-    **Task generation:**
-    - Only generate a task if there is a clear action item, commitment, assignment, or agreed-upon need.
-    - Do NOT generate tasks from brainstorming, open-ended suggestions, unresolved debates, or passing ideas.
-    - If no tasks exist, return an empty `tasks` array.
-
-    **Assignment:**
-    - Use the Discord ID (numeric) for `assignee_discord_id` — never a display name.
-    - Use the display name for `assignee_name`.
-    - Use display names in the summary.
-    - If ownership is unclear, set both to null.
-
-    **Deadlines:**
-    - Only extract a deadline if one was explicitly stated in the conversation.
-    - Never invent or infer a deadline. If none was mentioned, set `deadline` to null.
-
-    **Priority** (1 = urgent, 4 = low):
-    - 1: Urgent
-    - 2: High
-    - 3: Normal
-    - 4: Low
-
-    ---
-
-    ## Output
-
-    Respond ONLY with valid JSON. No markdown fences, no commentary.
-
-    {{
-        "participants": ["display_name"],
-        "summary": "2–3 sentence overview of the conversation and its outcomes.",
-        "tasks": [
-            {{
-                "name": "Short task title",
-                "description": "What needs to be done and why, with relevant context from the conversation.",
-                "priority": 3,
-                "deadline": "YYYY-MM-DD or null",
-                "assignee_discord_id": 123456789,
-                "assignee_name": "Display name or null",
-                "task_type": "explicit | inferred",
-                "confidence": "high | medium | low",
-                "owner_confidence": "high | medium | low",
-                "ambiguities": ["Any unclear aspects about this specific task"]
-            }}
-        ]
-    }}    
-    """
-
-    try:
-        response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
-        text = response.text
-        if text is None:
-            raise ValueError("Gemini returned an empty response")   
-        return json.loads(text)
-    except Exception as e:        
-        error_text = str(e)
-
-        if "429" in error_text:
-            raise RuntimeError("RATE_LIMIT")
-
-        elif "503" in error_text:
-            raise RuntimeError("SERVICE_UNAVAILABLE")
-
-        elif "RESOURCE_EXHAUSTED" in error_text:
-            raise RuntimeError("QUOTA_EXCEEDED")
-
-        raise
-
-def regenerateSummary(summary: str, transcript: str, feedback: str):
-
-    prompt = f"""
-    You are a project management assistant. You previously analyzed a Discord conversation and generated a summary and task list. A user has reviewed your output and provided feedback.
-
-    Your job is to revise the output based on that feedback, using the original transcript as the source of truth.
-
-    ---
-
-    ## Previous Output
-
-    {summary}
-
-    ---
-
-    ## User Feedback
-
-    {feedback}
-
-    ---
-
-    ## Original Transcript
-
-    {transcript}
-
-    ---
-
-    ## How to Revise
-
-    1. **Treat the transcript as ground truth.** The feedback tells you where your previous output was wrong or incomplete — but every task must still be supportable by the transcript.
-    2. **Reconcile, don't replace.** Keep tasks from the previous output that are still valid. Only remove tasks if the transcript does not support them.
-    3. **Add tasks the feedback highlights** if the transcript confirms them as clear commitments, assignments, or agreed-upon needs.
-    4. **Correct misattributions** — if the feedback says a task was assigned to the wrong person, verify against the transcript and update accordingly.
-    5. **Update the summary** to reflect the corrected understanding.
-
-    ---
-
-    ## Message Format
-
-    Each message follows this format:
-        HH:MM - DISCORD_ID (DISPLAY_NAME): message
-        Example: 15:30 - 123456789 (John): I will create the PCB BOM.
-
-    ---
-
-    ## Rules
-
-    **Task generation:**
-    - Only generate a task if there is a clear action item, commitment, assignment, or agreed-upon need.
-    - Do NOT generate tasks from brainstorming, open-ended suggestions, unresolved debates, or passing ideas.
-    - If no tasks exist, return an empty `tasks` array.
-
-    **Assignment:**
-    - Use the Discord ID (numeric) for `assignee_discord_id` — never a display name.
-    - Use the display name for `assignee_name`.
-    - Use display names for the summary.
-    - If ownership is unclear, set both to null.
-
-    **Deadlines:**
-    - Only extract a deadline if one was explicitly stated in the conversation.
-    - Never invent or infer a deadline. If none was mentioned, set `deadline` to null.
-
-    **Priority** (1 = urgent, 5 = low):
-    - 1: Blocking other work or has an imminent deadline
-    - 2: Important, near-term
-    - 3: Normal
-    - 4: Low urgency
-    - 5: Nice to have / no timeline
-
-    ---
-
-    ## Output
-
-    Respond ONLY with valid JSON. No markdown fences, no commentary.
-
-    {{
-        "participants": ["display_name"],
-        "summary": "2–3 sentence overview of the conversation and its outcomes, incorporating the correction.",
-        "revision_notes": "1–2 sentences explaining what changed from the previous output and why.",
-        "tasks": [
-            {{
-                "name": "Short task title",
-                "description": "What needs to be done and why, with relevant context from the conversation.",
-                "task_type": "explicit | inferred",
-                "priority": 3,
-                "deadline": "YYYY-MM-DD or null",
-                "assignee_discord_id": 123456789,
-                "assignee_name": "Display name or null",
-                "confidence": "high | medium | low",
-                "owner_confidence": "high | medium | low",
-                "ambiguities": ["Any unclear aspects about this specific task"]
-            }}
-        ]
-    }}
-    """
-
-    try:
-        response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
-        text = response.text
-        if text is None:
-            raise ValueError("Gemini returned an empty response")   
-        return json.loads(text)
-    except Exception as e:        
-        error_text = str(e)
-
-        if "429" in error_text:
-            raise RuntimeError("RATE_LIMIT")
-
-        elif "503" in error_text:
-            raise RuntimeError("SERVICE_UNAVAILABLE")
-
-        elif "RESOURCE_EXHAUSTED" in error_text:
-            raise RuntimeError("QUOTA_EXCEEDED")
-
-        raise
-
 def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int | None, assignee_name: str | None):
     prompt = rf"""
     You are an intent router for a Discord bot managing ClickUp tasks. Analyze the input data to determine user intent, extract exact parameters, and output structured JSON.
 
     ## Input Context
-    - **Sender:** {user_name} (ID: {user_id})
+    - **Sender:** NAME: {user_name} (ID: {user_id})
     - **Current Message:** "{request["current_message"]}"
     - **Referenced Message:** "{request["referenced_message"]}"
     - **Referenced Metadata:** {json.dumps(request["metadata"])}
@@ -309,76 +88,133 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     1. **Metadata Primacy:** Metadata is generated by the bot and is absolute truth. If metadata and message text conflict, prefer metadata.
     2. **Context Resolution:** Resolve pronouns ("it", "that task", "the one you just made") using the `task_id` or `task_name` present in the Referenced Metadata.
     3. **Implicit Continuation:** Do not treat isolated fragment replies (e.g., "Backlog", "Me", "Tomorrow", "Current Sprint") as standalone requests. Combine them with the referenced context to fulfill the previous missing information.
-
+    4. **Create vs Modify:** If the user references "this task" / "that task" but Referenced Metadata contains no existing ClickUp task ID or name, the reference points to something proposed in the current conversation → classify as `create_task`, not `modify_task`. `modify_task` requires a task that already exists in ClickUp.
+    
     ---
 
     ## Intent Classification
     Classify the message into exactly one category:
     - `view_tasks`: Request to view assigned tasks.
-    - `create_task`: Explicit request to create a new task (Must have a clear action item, commitment, or agreed need. No brainstorming/passing ideas).
-    - `change_status`: Request to update an existing task's status lifecycle.
-    - `summarize_conversation`: Request to read channel history and generate a summary text.
-    - `unclear`: Request does not map cleanly, or critical data is missing.
+    - `create_task`: Request to create a new task, including assigning/configuring a task proposed in the current conversation. Must have a clear action item or commitment. No brainstorming or loose ideas.
+    - `modify_task`: Request to edit one or more properties of an **already-existing** ClickUp task (assignee, deadline, priority, list, title, description).
+    - `summarize_conversation`: Request to read channel history and produce a summary based on a mode. The mode could be a number of messages, a time period or based on a reply in Referenced Message. If no range specified, default to count=100
+    - `bot_info`: Request for bot capabilities, supported commands, examples, or guidance on how to use the bot.
+    - `unclear`: Does not map cleanly, or a required parameter is missing.
 
     ---
 
     ## Parameter Rules
-    Extract parameters *only* if explicitly present or directly implied. Never invent data.
+    Extract only what is explicitly present or directly implied. Never invent data.
 
-    - id / name
-    - Pull from Referenced Metadata if user refers to an existing task.
-    - Name must be short and actionable.
-
-    - priority
-    - 1 = Urgent / ASAP / Immediately
-    - 2 = High / Important
-    - 3 = Normal (default)
-    - 4 = Low / Whenever
-
-    - deadline
-    - Convert explicit dates to YYYY-MM-DD.
-    - Never invent dates.
-
-    - team / list_name
-    - Must exactly match the Available Workspace Tree.
-    - If ambiguous, set both to null and ask a clarifying question.
-
-    - assignee
-    - If Message Assignee Hook exists, use it exactly.
-    - If user says "me" or "I'll take it", use Sender ID/Name.
-    - Otherwise null.
+    - **task_id / task_name:** Pull from Referenced Metadata when the user refers to an existing task.
+    - **name:** Short and actionable. For `create_task` only.
+    - **priority:** 1 = Urgent, 2 = High, 3 = Normal (default), 4 = Low
+    - **deadline:** Explicit dates only → YYYY-MM-DD. Never invent.
+    - **team / list_name:** Must exactly match Available Workspace Tree. If ambiguous, set both to null.
+    - **assignee_discord_id:** Use Message Assignee Hook ID if present. "me" / "I'll take it" → SENDER ID. Otherwise null. Do not default to the sender for `modify_task`. Use null when explicitly removing assignment.
+    - **assignee_name:** Use Message Assignee Hook Name if present. "me" / "I'll take it" → SENDER NAME. Otherwise null. Do not default to the sender for `modify_task`. Use null when explicitly removing assignment.
+    - **creator_id:** This is the SENDER ID that requested to create a task not the assignee id. If intent is to `modify_task`, this must come from the Referenced Metadata. Never invent it.
+    - **requestor_id:** This is the SENDER ID that requested a change to an existing task.
+    - **mode:** Determines how the conversation range should be selected for `summarize_conversation`.
+    - **timeframe:** summarize messages from a specific time period.
+    - **count:** Number of recent messages to summarize. 
+    - **anchor:** Summarize messages starting from a referenced message.
+    - **changes:** `modify_task` only. Object containing only the fields the user explicitly wants to change.
+    - **remove_assignee:** This is true when explicitly removing assignment from a atsk.
 
     ---
-
+        
     ## Confidence & Clarifications
-    - Set confidence to `low` if the intent is ambiguous or a required workflow parameter is missing.
-    - When confidence is `low`, write a specific, short `clarifying_question` to resolve the blocker. Do not ask a question if referenced metadata already clarifies the task.
-    - If confidence is `high` or `medium`, set `clarifying_question` to `null`.
+    - `low` if intent is ambiguous or a required parameter is missing. Write a specific, short `clarifying_question`.
+    - `high` / `medium` → `clarifying_question: null`. Do not ask if Referenced Metadata already resolves the ambiguity.
 
     ---
 
     ## Output Format
     Respond ONLY with a raw, valid JSON object matching the schema below. No markdown formatting fences (e.g., do not wrap in ```json), no conversational prefixes, no trailing explanations.
+    The output depends on intent:
 
-    <output_format>
+    `view_tasks`:
     {{
-        "intent": "view_tasks | create_task | change_status | summarize_conversation | unclear",
-        "confidence": "high | medium | low",
-        "params": {{
-            "id": "string or null",
-            "name": "string or null",
-            "description": "string or null",
-            "status": "string or null",
-            "priority": "1 | 2 | 3 | 4 | null",
-            "assignee_discord_id": "string or null",
-            "assignee_name": "string or null",
-            "deadline": "YYYY-MM-DD or null",
-            "team": "string or null",
-            "list_name": "string or null"
+        "intent":"view_tasks",
+        "confidence":"high|medium|low",
+        "params":{{
+            "assignee_discord_id":"string|null",
+            "assignee_name":"string|null"
         }},
-        "clarifying_question": "string or null"
+        "clarifying_question":null
     }}
-    </output_format>
+
+    `create_task`:
+    {{
+        "intent":"create_task",
+        "confidence":"high|medium|low",
+        "params":{{
+            "name":"string|null",
+            "description":"string|null",
+            "priority":"1|2|3|4|null",
+            "assignee_discord_id":"string|null",
+            "assignee_name":"string|null",
+            "deadline":"YYYY-MM-DD|null",
+            "team":"string|null",
+            "list_name":"string|null",
+            "creator_id":"string|null",
+            "requestor_id":"string|null"
+        }},
+        "clarifying_question":null
+    }}
+
+    `modify_task`:
+    {{
+        "intent":"modify_task",
+        "confidence":"high|medium|low",
+        "params":{{
+            "task_id":"string|null",
+            "task_name":"string|null",
+            "creator_id":"string|null",
+            "requestor_id":"string|null",
+            "changes":{{
+                "name":"string|null",
+                "description":"string|null",
+                "assignee_discord_id":"string|null",
+                "assignee_name":"string|null",
+                "deadline":"YYYY-MM-DD|null",
+                "priority":"1|2|3|4|null",
+                "team":"string|null",
+                "list_name":"string|null",
+                "remove_assignee": "true|false"
+            }}
+        }},
+        "clarifying_question":null
+    }}
+
+    `summarize_conversation`:
+    {{
+        "intent":"summarize_conversation",
+        "confidence":"high|medium|low",
+        "params":{{
+            "mode":"timeframe|count|anchor",
+            "timeframe":"Xh|Xd|Xm|today|null",
+            "count":"integer|null"
+        }},
+        "clarifying_question":null
+    }}
+
+    `bot_info`:
+    {{
+        "intent":"help",
+        "confidence":"high|medium|low",
+        "params":{{}},
+        "clarifying_question":"null"
+    }}
+
+    `unclear`:
+    {{
+        "intent":"unclear",
+        "confidence":"low",
+        "params":{{}},
+        "clarifying_question":"string"
+    }}
     """
 
     try:
@@ -405,6 +241,67 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
             raise RuntimeError("SERVICE_UNAVAILABLE")
         elif "RESOURCE_EXHAUSTED" in error_text:
             raise RuntimeError("QUOTA_EXCEEDED")
-
         raise
 
+def summarizeTranscript(transcript: str):
+    prompt = rf"""
+    You are summarizing a Discord conversation.
+
+    ## Input Context:
+    Conversation: {transcript}  
+
+    ---
+
+    ## Message Format
+    Each message follows this format: YYYY-MM-D HH:MM - DISCORD_ID (DISPLAY_NAME): message
+    
+    ---
+    
+    ## Summary Rules
+    - Generate a concise summary that captures:
+        1. Key decisions made.
+        2. Important information shared.
+        3. Action items or commitments.
+        4. Open questions or unresolved issues.
+
+    - Do not repeat every message.
+    - Focus on outcomes, decisions, and important context.
+    - Use the DISPLAY_NAME to refer to the participants.
+    - If action items exist, include a separate Action Items section.
+
+    ---
+
+    ## Output Format
+    Respond ONLY with a raw, valid JSON object matching the schema below. No markdown formatting fences (e.g., do not wrap in ```json), no conversational prefixes, no trailing explanations.
+    {{
+        "summary": "...",
+        "action_items": ["...", "..."],
+        "open_questions": ["..."]
+    }}
+    """
+
+    try:
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+        text = response.text
+        if text is None:
+            raise ValueError("Gemini returned an empty response")
+        text = text.strip()
+        result = json.loads(text)
+
+        required = {"intent", "confidence", "params", "clarifying_question"}
+        missing = required - result.keys()
+
+        if missing:
+            raise ValueError(f"Missing fields: {missing}")
+
+        return result
+    except Exception as e:
+        error_text = str(e)
+
+        if "429" in error_text:
+            raise RuntimeError("RATE_LIMIT")
+        elif "503" in error_text:
+            raise RuntimeError("SERVICE_UNAVAILABLE")
+        elif "RESOURCE_EXHAUSTED" in error_text:
+            raise RuntimeError("QUOTA_EXCEEDED")
+        raise
