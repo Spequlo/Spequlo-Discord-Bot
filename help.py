@@ -293,5 +293,5 @@ def changeStatusHandler():
 def summarizeConversationHandler():
     pass
 
-def modifyTaskHandler():
+def modifyTaskHandler(params, TOKEN):
     pass
