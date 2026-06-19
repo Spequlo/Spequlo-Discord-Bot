@@ -1,11 +1,10 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
-# need to create modify handlers
 # consider using aiohtttp incase multiple users want to use multiple request at the same time.
 # when doing modify tasks, add a check in  handler for that only the author of the task can modify it
 # Is an unassigned task something I want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
-# Improve error logging
+# Improve error logging and run through the code base for refactoring, particularly with metadata restructuring to ensure contet is preserved
 # add a feature for the bot responding with what it can do
 
 import discord
@@ -13,9 +12,7 @@ from discord.ext import commands
 import logging 
 from dotenv import load_dotenv
 import os
-from server import *
 from help import *
-from ai import *
 
 load_dotenv()
 
@@ -182,7 +179,7 @@ async def help(interaction: discord.Interaction):
 @bot.tree.command(name="signup", description="Connect your discord user to ClickUp", guild=ServerID)
 async def signUp(interaction: discord.Interaction, id: int):
     user = interaction.user
-    member = getMember(user.id)
+    member = getClickUpId(user.id)
 
     if member:
         embed = discord.Embed(title=f"You already signed up.", description="You're already a member on clickup", color=discord.Color.red())

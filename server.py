@@ -14,7 +14,7 @@ if SUPABASE_KEY is None:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def getMember(discord_id: int):
+def getClickUpId(discord_id: int):
     response = supabase.table("discord_members").select("clickup_id").eq("discord_id", str(discord_id)).execute()
     if not response.data:
         return None
