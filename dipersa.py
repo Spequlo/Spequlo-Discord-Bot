@@ -141,6 +141,8 @@ async def on_message(message):
             return
 
         result = handler(params, CLICKUP_TOKEN)
+        logging.info("Handler Result: %s", json.dumps(result["metadata"], indent=2))
+        
         if not isinstance(result, dict):
             raise RuntimeError(f"Handler {intent} returned invalid result")
         

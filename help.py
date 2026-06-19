@@ -187,7 +187,7 @@ def modifyTaskHandler(params, TOKEN):
        
     if changes.get("assignee_discord_id"):
         clickup_id = getClickUpId(changes["assignee_discord_id"])
-        update_payload["assignees"] = {clickup_id}
+        update_payload["assignees"] = [clickup_id]
         changes_made.append(f"assigned to {changes['assignee_name']}")
 
     if changes.get("priority"):
@@ -200,9 +200,9 @@ def modifyTaskHandler(params, TOKEN):
         }
         changes_made.append(f"priority set to {priority_map.get(changes['priority'])}")
     
-    if changes.get("deadline"):
-        update_payload["due_date"] = changes["deadline"]
-        changes_made.append(f"deadline set to {changes['deadline']}")
+    # if changes.get("deadline"):
+    #     update_payload["due_date"] = changes["deadline"]
+    #     changes_made.append(f"deadline set to {changes['deadline']}")
   
     if not update_payload:
         return {
@@ -224,7 +224,7 @@ def modifyTaskHandler(params, TOKEN):
         "metadata": {
             "task_id": params["task_id"],
             "task_name": changes.get("name", params["task_name"]),
-            "creator_id": creator_id,
+            "update_payload": update_payload,
             "changes": changes,
             "update_result": result
         }
