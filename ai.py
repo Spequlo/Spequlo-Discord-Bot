@@ -98,6 +98,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     - `create_task`: Request to create a new task, including assigning/configuring a task proposed in the current conversation. Must have a clear action item or commitment. No brainstorming or loose ideas.
     - `modify_task`: Request to edit one or more properties of an **already-existing** ClickUp task (assignee, deadline, priority, list, title, description).
     - `summarize_conversation`: Request to read channel history and produce a summary based on a mode. The mode could be a number of messages, a time period or based on a reply in Referenced Message. If no range specified, default to count=100
+    - `bot_info`: Request for bot capabilities, supported commands, examples, or guidance on how to use the bot.
     - `unclear`: Does not map cleanly, or a required parameter is missing.
 
     ---
@@ -196,6 +197,14 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
             "count":"integer|null"
         }},
         "clarifying_question":null
+    }}
+
+    `bot_info`:
+    {{
+        "intent":"help",
+        "confidence":"high|medium|low",
+        "params":{{}},
+        "clarifying_question":"null"
     }}
 
     `unclear`:

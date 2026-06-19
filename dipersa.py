@@ -2,10 +2,7 @@
 # Author - Edidiong Ekong
 
 # consider using aiohtttp incase multiple users want to use multiple request at the same time.
-# when doing modify tasks, add a check in  handler for that only the author of the task can modify it
-# Is an unassigned task something I want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
-# Improve error logging and run through the code base for refactoring, particularly with metadata restructuring to ensure contet is preserved
-# add a feature for the bot responding with what it can do
+# run through the code base for refactoring, particularly with metadata restructuring to ensure contet is preserved
 
 import discord
 from discord.ext import commands
@@ -129,6 +126,7 @@ async def on_message(message):
             "create_task": createTaskHandler,
             "modify_task": modifyTaskHandler,
             "summarize_conversation": summarizeConversationHandler,
+            "bot_info": helpHandler
         }
 
         if intent == "summarize_conversation":
@@ -142,7 +140,7 @@ async def on_message(message):
 
         result = handler(params, CLICKUP_TOKEN)
         logging.info("Handler Result: %s", json.dumps(result["metadata"], indent=2))
-        
+
         if not isinstance(result, dict):
             raise RuntimeError(f"Handler {intent} returned invalid result")
         

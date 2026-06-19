@@ -258,6 +258,22 @@ def summarizeConversationHandler(params, TOKEN):
         }
     }
 
+def helpHandler(params, TOKEN):
+    return{
+        "message": (
+            "I can help manage ClickUp tasks. Just tell me what you want :)\n\n"
+            "**Examples for how to use me**\n"
+            "• @bot create a task to add OAuth support\n"
+            "• @bot assign this task to @OnlyRafael\n\n"
+            "• @bot move this to backlog\n"
+            "• @bot show my tasks\n"
+            "• @bot show @DrexRegion's tasks\n\n"
+            "• @bot summarize the last 50 messages\n"
+            "• @bot what did they talk about today\n"
+        ),
+        "metadata": {}
+    }
+
 def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
     member = getClickUpId(userID)
 
