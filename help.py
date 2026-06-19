@@ -1,10 +1,23 @@
 import requests
 import time
 from server import *
+from ai import *
 from datetime import datetime, timedelta, timezone
 
 task_cache = {}
 CACHE_TTL = 3600
+
+def findAssignee(message, user) -> tuple[int | None, str | None]:
+    mentioned_users = [u for u in message.mentions if u != user]
+    if mentioned_users:
+        return mentioned_users[0].id, mentioned_users[0].display_name
+
+    if message.reference and message.reference.resolved:
+        ref_author = message.reference.resolved.author
+        if ref_author != user:
+            return ref_author.id, ref_author.display_name
+
+    return None, None
 
 def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
     url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
@@ -146,6 +159,27 @@ def simplifyTasks(tasks: list):
 
     return simplified
 
+def parseTimeframe(timeframe: str):
+    if timeframe.lower() == "today":
+        now = datetime.now(timezone.utc)
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    value = int(timeframe[:-1])
+    unit = timeframe[-1].lower()
+
+    if unit == "s":
+        return datetime.now(timezone.utc) - timedelta(seconds=value)
+    if unit == "m":
+        return datetime.now(timezone.utc) - timedelta(minutes=value)
+    if unit == "h":
+        return datetime.now(timezone.utc) - timedelta(hours=value)
+    if unit == "d":
+        return datetime.now(timezone.utc) - timedelta(days=value)
+    if unit == "w":
+        return datetime.now(timezone.utc) - timedelta(weeks=value)
+
+    raise ValueError("Invalid timeframe")
+
 
 
 def getListStatuses(TOKEN: str, LIST_ID: str):
@@ -172,23 +206,6 @@ def updateTaskStatus(TOKEN: str, TASK_ID: str, new_status: str):
 
 def invalidateTaskCache(user_id: int):
     task_cache.pop(user_id, None)
-
-def parseTimeframe(timeframe: str):
-    value = int(timeframe[:-1])
-    unit = timeframe[-1].lower()
-
-    if unit == "s":
-        return datetime.now(timezone.utc) - timedelta(seconds=value)
-    if unit == "m":
-        return datetime.now(timezone.utc) - timedelta(minutes=value)
-    if unit == "h":
-        return datetime.now(timezone.utc) - timedelta(hours=value)
-    if unit == "d":
-        return datetime.now(timezone.utc) - timedelta(days=value)
-    if unit == "w":
-        return datetime.now(timezone.utc) - timedelta(weeks=value)
-
-    raise ValueError("Invalid timeframe")
 
 def formatSummary(result: dict):
     participants = "\n".join(f"• {p}" for p in result["participants"])
@@ -220,18 +237,6 @@ def formatSummary(result: dict):
         f"{ambiguity_text}"
     )
 
-def findAssignee(message, user) -> tuple[int | None, str | None]:
-    mentioned_users = [u for u in message.mentions if u != user]
-    if mentioned_users:
-        return mentioned_users[0].id, mentioned_users[0].display_name
-
-    if message.reference and message.reference.resolved:
-        ref_author = message.reference.resolved.author
-        if ref_author != user:
-            return ref_author.id, ref_author.display_name
-
-    return None, None
-
 
 
 async def viewTasksHandler(params, TOKEN):
@@ -239,7 +244,7 @@ async def viewTasksHandler(params, TOKEN):
     tasks = getCachedTasks(TOKEN, member_id)
 
     return {
-        "message": f'Here are all your tasks: \n[t["task_name"] for t in tasks]',
+        "message": f'Here are all your tasks: \n{[t["task_name"] for t in tasks]}',
         "metadata": tasks
     }
 
@@ -299,5 +304,29 @@ def modifyTaskHandler(params, TOKEN):
     pass
 
 def summarizeConversationHandler(params, TOKEN):
-    pass
+    transcript = params["transcript"]
+    result = summarizeTranscript(transcript[-12000:])
 
+    summary = result.get("summary", "No summary generated.")
+    action_items = result.get("action_items", [])
+    open_questions = result.get("open_questions", [])
+
+    message = f"## 📝 Conversation Summary\n\n{summary}"
+
+    if action_items:
+        message += "\n\n### ✅ Action Items"
+        for item in action_items:
+            message += f"\n• {item}"
+
+    if open_questions:
+        message += "\n\n### ❓ Open Questions"
+        for question in open_questions:
+            message += f"\n• {question}"
+
+    return {
+        "message": message, 
+        "metadata":{     
+            "summary_response": result,
+            "transcript_length": len(transcript)
+        }
+    }

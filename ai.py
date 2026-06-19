@@ -233,19 +233,23 @@ def summarizeTranscript(transcript: str):
     Conversation: {transcript}  
 
     ---
+
+    ## Message Format
+    Each message follows this format: YYYY-MM-D HH:MM - DISCORD_ID (DISPLAY_NAME): message
+    
+    ---
     
     ## Summary Rules
-    Generate a concise summary that captures:
+    - Generate a concise summary that captures:
+        1. Key decisions made.
+        2. Important information shared.
+        3. Action items or commitments.
+        4. Open questions or unresolved issues.
 
-    1. Key decisions made.
-    2. Important information shared.
-    3. Action items or commitments.
-    4. Open questions or unresolved issues.
-
-    Do not repeat every message.
-    Focus on outcomes, decisions, and important context.
-
-    If action items exist, include a separate Action Items section.
+    - Do not repeat every message.
+    - Focus on outcomes, decisions, and important context.
+    - Use the DISPLAY_NAME to refer to the participants.
+    - If action items exist, include a separate Action Items section.
 
     ---
 

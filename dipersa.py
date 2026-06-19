@@ -6,7 +6,7 @@
 # when doing modify tasks, add a check in  handler for that only the author of the task can modify it
 # Is an unassigned task something I want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
 # Improve error logging
-# add a feature for the bot responding wiht what it can do
+# add a feature for the bot responding with what it can do
 
 import discord
 from discord.ext import commands
@@ -133,6 +133,9 @@ async def on_message(message):
             "modify_task": modifyTaskHandler,
             "summarize_conversation": summarizeConversationHandler,
         }
+
+        if intent == "summarize_conversation":
+            params["transcript"] = await buildTranscript(message, params)
 
         handler = request_handlers.get(intent)
 
@@ -266,3 +269,45 @@ async def confirmStatus(interaction: discord.Interaction, status_number: int):
     )
 
 bot.run(DISCORD_TOKEN, log_handler=handler, log_level=logging.DEBUG)
+
+async def buildTranscript(message, params):
+    mode = params.get("mode", "count")
+    raw_messages = []
+
+    def format_message(msg):
+        content = msg.content.strip()
+
+        if msg.attachments:
+            attachment_names = ", ".join(attachment.filename for attachment in msg.attachments)
+            content += f" [Attachments: {attachment_names}]"
+
+        if msg.reference:
+            content = f"[Reply] {content}"
+
+        return (f"{msg.created_at.strftime('%Y-%m-%d %H:%M')} - {msg.author.id} ({msg.author.display_name}): {content}")
+
+    if mode == "timeframe":
+        cutoff = parseTimeframe(params.get("timeframe"))
+
+        async for msg in message.channel.history(after=cutoff, limit=1000):
+            if msg.content.strip() or msg.attachments:
+                raw_messages.append(format_message(msg))
+    elif mode == "anchor":
+        if not message.reference:
+            return None
+
+        anchor = await message.channel.fetch_message(message.reference.message_id)
+
+        async for msg in message.channel.history(after=anchor, limit=1000):
+            if msg.content.strip() or msg.attachments:
+                raw_messages.append(format_message(msg))
+    else:
+        count = int(params.get("count") or 100)
+
+        async for msg in message.channel.history(limit=count):
+            if msg.content.strip() or msg.attachments:
+                raw_messages.append(format_message(msg))
+
+    raw_messages.reverse()
+
+    return "\n".join(raw_messages)
