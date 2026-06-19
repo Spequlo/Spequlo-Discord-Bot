@@ -1,6 +1,6 @@
 import requests
 import time
-from server import getClickUpId, getChannel, addMember, getListId
+from server import *
 from ai import *
 from datetime import datetime, timedelta, timezone
 
@@ -35,130 +35,6 @@ def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
                 return True     
         return False
 
-def createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
-    member = getClickUpId(userID)
-
-    if not member:
-        return {
-            "success": False,
-            "error": "USER_NOT_FOUND"
-        }
-
-    task_data = {
-        "name": str(task),
-        "description": str(desc),
-        "priority": int(priority),
-        "assignees": [int(member)]
-    }
-    url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
-
-    headers = {
-        "Authorization": TOKEN,
-        "Content-Type": "application/json"
-    }
-
-    try:
-        response = requests.post(url, json=task_data, headers=headers)
-        if response.status_code not in (200, 201):
-            try:
-                error_body = response.json()
-            except Exception:
-                error_body = response.text
-
-            return {
-                "success": False,
-                "status_code": response.status_code,
-                "error": error_body
-            }
-        return {
-            "success": True,
-            "data": response.json()
-        }
-    except requests.RequestException as e:
-        return{
-            "success": False,
-            "error": str(e)
-        }
-
-def getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
-    FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure", "website"]
-    LISTS = ["backlog", "current_sprint", "bugs"]
-
-    member = getClickUpId(userId)
-    if not member:
-        raise ValueError("No member found. Ensure you have linked your ClickUp account.")
-    
-    headers = {"Authorization": TOKEN}
-    params = {"assignees[]": [int(member)]}
-    allTasks = []
-
-    teams = [team] if team else FOLDERS
-
-    for team in teams:
-        lists = ["list"] if team == "website" else LISTS
-        if list:
-            lists = [list] if list in lists else []
-
-        for lst in lists:
-            listId = getListId(team, lst)
-            if not listId:
-                raise ValueError(f"No list ID found for {team}/{list}")
-            url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
-            response = requests.get(url, headers=headers, params=params)
-
-            if response.status_code != 200:
-                print(f"Error fetching {team}/{list}: {response.status_code} - {response.text}")
-                raise PermissionError(f"ClickUp request failed: {response.status_code}")
-
-            data = response.json()
-            if "tasks" in data:
-                allTasks.extend(data["tasks"])
-    if not allTasks:
-        raise ValueError("You have no assigned tasks.")
-    return allTasks
-
-def getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
-    cached = task_cache.get(user_id)
-
-    if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
-        return cached["tasks"]
-
-    tasks = getTasks(token, user_id, team, list_name)
-
-    if isinstance(tasks, list):
-        task_cache[user_id] = {
-            "tasks": list(simplifyTasks(tasks)),
-            "fetched_at": time.time()
-        }
-        return task_cache[user_id]["tasks"]
-
-    return tasks
-
-def simplifyTasks(tasks: list):
-    simplified = []
-
-    for task in tasks:
-        simplified.append({
-            "task_id": task["id"],
-            "task_name": task["name"],
-
-            "folder": task["folder"]["name"],
-            "list": task["list"]["name"],
-            "list_id": task["list"]["id"],
-
-            "status": task["status"]["status"],
-            "status_id": task["status"]["id"],
-
-            "priority": task["priority"]["priority"] if task["priority"] else None,
-            "deadline": task["due_date"],
-            "url": task["url"],
-
-            "creator_id": task["creator"]["id"],
-            "assignees": [assignee["id"] for assignee in task["assignees"]]
-        })
-
-    return simplified
-
 def parseTimeframe(timeframe: str):
     if timeframe.lower() == "today":
         now = datetime.now(timezone.utc)
@@ -180,39 +56,9 @@ def parseTimeframe(timeframe: str):
 
     raise ValueError("Invalid timeframe")
 
-def findTask(TOKEN: str, task_id: str):
-    url = f"https://api.clickup.com/api/v2/task/{task_id}"
-    headers={"Authorization": TOKEN}
-
-    response = requests.get(url, headers)
-    if response.status_code != 200:
-        return None
-
-    return response.json()
-
-def updateTask(TOKEN: str, task_id: int, payload: dict):
-    url = f"https://api.clickup.com/api/v2/task/{task_id}"
-    headers={
-        "Authorization": TOKEN,
-        "Content-Type": "application/json"
-    }
-
-    response = requests.put(url, headers, json=payload)
-
-    try:
-        body = response.json()
-    except Exception:
-        body = {}
-
-    return {
-        "status_code": response.status_code,
-        "success": response.status_code == 200,
-        "response": body
-    }
-
 async def viewTasksHandler(params, TOKEN):
     member_id = params["assignee_discord_id"]
-    tasks = getCachedTasks(TOKEN, member_id)
+    tasks = _getCachedTasks(TOKEN, member_id)
 
     return {
         "message": f'Here are all your tasks: \n{[t["task_name"] for t in tasks]}',
@@ -239,7 +85,7 @@ def createTaskHandler(params, TOKEN):
         raise ValueError(f"List ID not found!")
     LIST_ID = int(list_value)
 
-    result = createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
+    result = _createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
 
     if not result["success"]:
         if result.get("error") == "USER_NOT_FOUND":
@@ -294,11 +140,11 @@ def modifyTaskHandler(params, TOKEN):
         raise ValueError(f"List ID not found!")
     LIST_ID = int(list_value)
 
-    if not findTask(TOKEN, params['task_id']):
+    if not _findTask(TOKEN, params['task_id']):
         user_id = changes.get("assignee_discord_id")
         task_name = (changes.get("name") or params.get("task_name"))
 
-        result = createTask(TOKEN, user_id, task_name, LIST_ID, changes.get("priority"), changes.get("description"))
+        result = _createTask(TOKEN, user_id, task_name, LIST_ID, changes.get("priority"), changes.get("description"))
         if not result["success"]:
             if result.get("error") == "USER_NOT_FOUND":
                 return {
@@ -365,7 +211,7 @@ def modifyTaskHandler(params, TOKEN):
         }
     
     try:
-        result = updateTask(TOKEN, params['task_id'], update_payload)
+        result = _updateTask(TOKEN, params['task_id'], update_payload)
     except Exception as e:
         return {
             "message": f"Failed to update task: {str(e)}",
@@ -410,4 +256,158 @@ def summarizeConversationHandler(params, TOKEN):
             "summary_response": result,
             "transcript_length": len(transcript)
         }
+    }
+
+def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
+    member = getClickUpId(userID)
+
+    if not member:
+        return {
+            "success": False,
+            "error": "USER_NOT_FOUND"
+        }
+
+    task_data = {
+        "name": str(task),
+        "description": str(desc),
+        "priority": int(priority),
+        "assignees": [int(member)]
+    }
+    url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
+
+    headers = {
+        "Authorization": TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(url, json=task_data, headers=headers)
+        if response.status_code not in (200, 201):
+            try:
+                error_body = response.json()
+            except Exception:
+                error_body = response.text
+
+            return {
+                "success": False,
+                "status_code": response.status_code,
+                "error": error_body
+            }
+        return {
+            "success": True,
+            "data": response.json()
+        }
+    except requests.RequestException as e:
+        return{
+            "success": False,
+            "error": str(e)
+        }
+
+def _getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
+    FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure", "website"]
+    LISTS = ["backlog", "current_sprint", "bugs"]
+
+    member = getClickUpId(userId)
+    if not member:
+        raise ValueError("No member found. Ensure you have linked your ClickUp account.")
+    
+    headers = {"Authorization": TOKEN}
+    params = {"assignees[]": [int(member)]}
+    allTasks = []
+
+    teams = [team] if team else FOLDERS
+
+    for team in teams:
+        lists = ["list"] if team == "website" else LISTS
+        if list:
+            lists = [list] if list in lists else []
+
+        for lst in lists:
+            listId = getListId(team, lst)
+            if not listId:
+                raise ValueError(f"No list ID found for {team}/{list}")
+            url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
+            response = requests.get(url, headers=headers, params=params)
+
+            if response.status_code != 200:
+                print(f"Error fetching {team}/{list}: {response.status_code} - {response.text}")
+                raise PermissionError(f"ClickUp request failed: {response.status_code}")
+
+            data = response.json()
+            if "tasks" in data:
+                allTasks.extend(data["tasks"])
+    if not allTasks:
+        raise ValueError("You have no assigned tasks.")
+    return allTasks
+
+def _getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
+    cached = task_cache.get(user_id)
+
+    if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
+        return cached["tasks"]
+
+    tasks = _getTasks(token, user_id, team, list_name)
+
+    if isinstance(tasks, list):
+        task_cache[user_id] = {
+            "tasks": list(_simplifyTasks(tasks)),
+            "fetched_at": time.time()
+        }
+        return task_cache[user_id]["tasks"]
+
+    return tasks
+
+def _simplifyTasks(tasks: list):
+    simplified = []
+
+    for task in tasks:
+        simplified.append({
+            "task_id": task["id"],
+            "task_name": task["name"],
+
+            "folder": task["folder"]["name"],
+            "list": task["list"]["name"],
+            "list_id": task["list"]["id"],
+
+            "status": task["status"]["status"],
+            "status_id": task["status"]["id"],
+
+            "priority": task["priority"]["priority"] if task["priority"] else None,
+            "deadline": task["due_date"],
+            "url": task["url"],
+
+            "creator_id": task["creator"]["id"],
+            "assignees": [assignee["id"] for assignee in task["assignees"]]
+        })
+
+    return simplified
+
+def _findTask(TOKEN: str, task_id: str):
+    url = f"https://api.clickup.com/api/v2/task/{task_id}"
+    headers={"Authorization": TOKEN}
+
+    response = requests.get(url, headers)
+    if response.status_code != 200:
+        return None
+
+    return response.json()
+
+def _updateTask(TOKEN: str, task_id: int, payload: dict):
+    url = f"https://api.clickup.com/api/v2/task/{task_id}"
+    headers={
+        "Authorization": TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    response = requests.put(url, headers, json=payload)
+
+    try:
+        body = response.json()
+    except Exception:
+        body = {}
+
+    return {
+        "status_code": response.status_code,
+        "success": response.status_code == 200,
+        "response": body
     }
