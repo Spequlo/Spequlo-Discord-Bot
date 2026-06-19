@@ -113,7 +113,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     - **team / list_name:** Must exactly match Available Workspace Tree. If ambiguous, set both to null.
     - **assignee_discord_id:** Use Message Assignee Hook ID if present. "me" / "I'll take it" → SENDER ID. Otherwise null. Do not default to the sender for `modify_task`. Use null when explicitly removing assignment.
     - **assignee_name:** Use Message Assignee Hook Name if present. "me" / "I'll take it" → SENDER NAME. Otherwise null. Do not default to the sender for `modify_task`. Use null when explicitly removing assignment.
-    - **creator_id:** This is the SENDER ID that requested to create a task. If intent is to `modify_task`, this must come from the Referenced Metadata. Never invent it.
+    - **creator_id:** This is the SENDER ID that requested to create a task not the assignee id. If intent is to `modify_task`, this must come from the Referenced Metadata. Never invent it.
     - **requestor_id:** This is the SENDER ID that requested a change to an existing task.
     - **mode:** Determines how the conversation range should be selected for `summarize_conversation`.
     - **timeframe:** summarize messages from a specific time period.
@@ -158,7 +158,8 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
             "deadline":"YYYY-MM-DD|null",
             "team":"string|null",
             "list_name":"string|null",
-            "creator_id":"string|null"
+            "creator_id":"string|null",
+            "requestor_id":"string|null"
         }},
         "clarifying_question":null
     }}

@@ -114,7 +114,7 @@ def createTaskHandler(params, TOKEN):
             "list_name": task["list"]["name"],
             "url": task["url"],
             "assignee_discord_id": assignee_id,
-            "creator_id": params["creator_id"]
+            "creator_id": params["requestor_id"]
         }
     }
 
@@ -286,10 +286,10 @@ def helpHandler(params, TOKEN):
             "I can help manage ClickUp tasks. Just tell me what you want :)\n\n"
             "**Examples for how to use me**\n"
             "• @bot create a task to add OAuth support\n"
-            "• @bot assign this task to @OnlyRafael\n\n"
+            "• @bot assign this task to @OnlyRafael\n"
             "• @bot move this to backlog\n"
             "• @bot show my tasks\n"
-            "• @bot show @DrexRegion's tasks\n\n"
+            "• @bot show @DrexRegion's tasks\n"
             "• @bot summarize the last 50 messages\n"
             "• @bot what did they talk about today\n"
         ),
