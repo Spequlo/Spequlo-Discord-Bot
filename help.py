@@ -135,14 +135,22 @@ def modifyTaskHandler(params, TOKEN):
     changes_made = []
     changes = params.get("changes", {})
 
-    list_value = getListId(changes["team"], changes["list_name"])
-    if list_value is None:
-        raise ValueError(f"List ID not found!")
-    LIST_ID = int(list_value)
+    LIST_ID = None
+    if changes.get("team") and changes.get("list_name"):
+        list_value = getListId(changes["team"], changes["list_name"])
+        if list_value is None:
+            return {
+                "message": "I couldn't find that destination list.",
+                "metadata": {}
+            }
+        LIST_ID = int(list_value)
 
     if not _findTask(TOKEN, params['task_id']):
         user_id = changes.get("assignee_discord_id")
         task_name = (changes.get("name") or params.get("task_name"))
+
+        if LIST_ID is None:
+            raise ValueError(f"List ID not found!")
 
         result = _createTask(TOKEN, user_id, task_name, LIST_ID, changes.get("priority"), changes.get("description"))
         if not result["success"]:
@@ -178,20 +186,25 @@ def modifyTaskHandler(params, TOKEN):
         }
 
     if changes.get("name"):
-        update_payload["name"] = changes["name"]
+        update_payload["name"] = str(changes["name"])
         changes_made.append(f"renamed to '{changes['name']}'")
 
     if changes.get("description"):
-        update_payload["description"] = changes["description"]
+        update_payload["description"] = str(changes["description"])
         changes_made.append( "description updated")
        
     if changes.get("assignee_discord_id"):
         clickup_id = getClickUpId(changes["assignee_discord_id"])
-        update_payload["assignees"] = [clickup_id]
+        if clickup_id is None:
+            return {
+                "message": "USER_NOT_FOUND",
+                "metadate": ""
+            }
+        update_payload["assignees"] = [int(clickup_id)]
         changes_made.append(f"assigned to {changes['assignee_name']}")
 
     if changes.get("priority"):
-        update_payload["priority"] = changes["priority"]
+        update_payload["priority"] = int(changes["priority"])
         priority_map = {
             "1": "Urgent",
             "2": "High",
@@ -212,6 +225,15 @@ def modifyTaskHandler(params, TOKEN):
     
     try:
         result = _updateTask(TOKEN, params['task_id'], update_payload)
+        if LIST_ID:
+            move_result = _moveTask(TOKEN, params["task_id"], LIST_ID)
+            if move_result["success"]:
+                changes_made.append(f"moved to {changes['team']} → {changes['list_name']}")
+            else:
+                return {
+                    "message": "Task updated but failed to move lists.",
+                    "metadata": move_result
+                }
     except Exception as e:
         return {
             "message": f"Failed to update task: {str(e)}",
@@ -425,5 +447,24 @@ def _updateTask(TOKEN: str, task_id: int, payload: dict):
     return {
         "status_code": response.status_code,
         "success": response.status_code == 200,
+        "response": body
+    }
+
+def _moveTask(TOKEN: str, TASK_ID: str, LIST_ID: int):
+    url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task/{TASK_ID}"
+    headers={
+        "Authorization": TOKEN,
+        "Content-Type": "application/json"
+    }
+    response = requests.post(url, headers)
+
+    try:
+        body = response.json()
+    except Exception:
+        body = {}
+
+    return {
+        "success": response.status_code in (200, 201),
+        "status_code": response.status_code,
         "response": body
     }
