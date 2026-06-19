@@ -89,6 +89,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     2. **Context Resolution:** Resolve pronouns ("it", "that task", "the one you just made") using the `task_id` or `task_name` present in the Referenced Metadata.
     3. **Implicit Continuation:** Do not treat isolated fragment replies (e.g., "Backlog", "Me", "Tomorrow", "Current Sprint") as standalone requests. Combine them with the referenced context to fulfill the previous missing information.
     4. 4. **Create vs Modify:** If the user references "this task" / "that task" but Referenced Metadata contains no existing ClickUp task ID or name, the reference points to something proposed in the current conversation → classify as `create_task`, not `modify_task`. `modify_task` requires a task that already exists in ClickUp.
+    
     ---
 
     ## Intent Classification
@@ -96,7 +97,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     - `view_tasks`: Request to view assigned tasks.
     - `create_task`: Request to create a new task, including assigning/configuring a task proposed in the current conversation. Must have a clear action item or commitment. No brainstorming or loose ideas.
     - `modify_task`: Request to edit one or more properties of an **already-existing** ClickUp task (assignee, deadline, priority, list, title, description).
-    - `summarize_conversation`: Request to read channel history and produce a summary.
+    - `summarize_conversation`: Request to read channel history and produce a summary based on a mode. The mode could be a number of messages, a time period or based on a reply in Referenced Message. If no range specified, default to count=100
     - `unclear`: Does not map cleanly, or a required parameter is missing.
 
     ---
@@ -110,6 +111,10 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     - **deadline:** Explicit dates only → YYYY-MM-DD. Never invent.
     - **team / list_name:** Must exactly match Available Workspace Tree. If ambiguous, set both to null.
     - **assignee:** Use Message Assignee Hook if present. "me" / "I'll take it" → Sender. Otherwise null.
+    - **mode:** Determines how the conversation range should be selected for `summarize_conversation`.
+    - **timeframe:** summarize messages from a specific time period.
+    - **count:** Number of recent messages to summarize. 
+    - **anchor:** Summarize messages starting from a referenced message.
     - **changes:** `modify_task` only. Object containing only the fields the user explicitly wants to change.
 
     ---
@@ -122,7 +127,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
 
     ## Output Format
     Respond ONLY with a raw, valid JSON object matching the schema below. No markdown formatting fences (e.g., do not wrap in ```json), no conversational prefixes, no trailing explanations.
-    The `params` shape depends on intent:
+    The output depends on intent:
 
     view_tasks:
     {{
@@ -178,7 +183,9 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
         "intent":"summarize_conversation",
         "confidence":"high|medium|low",
         "params":{{
-            "message_count": 50
+            "mode":"timeframe|count|anchor",
+            "timeframe":"Xh|Xd|Xm|today|null",
+            "count":"integer|null"
         }},
         "clarifying_question":null
     }}
@@ -193,7 +200,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     """
 
     try:
-        response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
         text = response.text
         if text is None:
             raise ValueError("Gemini returned an empty response")
@@ -218,3 +225,61 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
             raise RuntimeError("QUOTA_EXCEEDED")
         raise
 
+def summarizeTranscript(transcript: str):
+    prompt = rf"""
+    You are summarizing a Discord conversation.
+
+    ## Input Context:
+    Conversation: {transcript}  
+
+    ---
+    
+    ## Summary Rules
+    Generate a concise summary that captures:
+
+    1. Key decisions made.
+    2. Important information shared.
+    3. Action items or commitments.
+    4. Open questions or unresolved issues.
+
+    Do not repeat every message.
+    Focus on outcomes, decisions, and important context.
+
+    If action items exist, include a separate Action Items section.
+
+    ---
+
+    ## Output Format
+    Respond ONLY with a raw, valid JSON object matching the schema below. No markdown formatting fences (e.g., do not wrap in ```json), no conversational prefixes, no trailing explanations.
+    {{
+        "summary": "...",
+        "action_items": ["...", "..."],
+        "open_questions": ["..."]
+    }}
+    """
+
+    try:
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+        text = response.text
+        if text is None:
+            raise ValueError("Gemini returned an empty response")
+        text = text.strip()
+        result = json.loads(text)
+
+        required = {"intent", "confidence", "params", "clarifying_question"}
+        missing = required - result.keys()
+
+        if missing:
+            raise ValueError(f"Missing fields: {missing}")
+
+        return result
+    except Exception as e:
+        error_text = str(e)
+
+        if "429" in error_text:
+            raise RuntimeError("RATE_LIMIT")
+        elif "503" in error_text:
+            raise RuntimeError("SERVICE_UNAVAILABLE")
+        elif "RESOURCE_EXHAUSTED" in error_text:
+            raise RuntimeError("QUOTA_EXCEEDED")
+        raise
