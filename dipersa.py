@@ -1,16 +1,15 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
-# need to create modify and viewtask handlers
+# need to create modify handlers
 # consider using aiohtttp incase multiple users want to use multiple request at the same time.
 # when doing modify tasks, add a check in  handler for that only the author of the task can modify it
 # Is an unassigned task something I want to support, or should task creation always require an assignee? Right now there's no way to distinguish those two failure cases from the user's side.
 # Improve error logging
+# add a feature for the bot responding wiht what it can do
 
 import discord
 from discord.ext import commands
-from discord import app_commands
-from discord.app_commands import checks
 import logging 
 from dotenv import load_dotenv
 import os
@@ -37,7 +36,6 @@ WORKSPACE_ID_STR = os.getenv('CLICKUP_WORKSPACE_ID')
 if WORKSPACE_ID_STR is None:
     raise ValueError("CLICKUP_WORKSPACE_ID is not set")
 CLICKUP_WORKSPACE_ID = int(WORKSPACE_ID_STR)
-
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
@@ -132,7 +130,6 @@ async def on_message(message):
         request_handlers = {
             "view_tasks": viewTasksHandler,
             "create_task": createTaskHandler,
-            "change_status": changeStatusHandler,
             "modify_task": modifyTaskHandler,
             "summarize_conversation": summarizeConversationHandler,
         }
@@ -174,13 +171,6 @@ async def on_message(message):
 async def help(interaction: discord.Interaction):
     embed = discord.Embed(title="Dipersa Commands and Info", description="Here are all the manual commands I have and their descriptions.", color=discord.Color.blue())
     embed.add_field(name="/signup", value="Connect your Discord user to your CLickUp user in the Spequlo Workspace", inline=False)
-    embed.add_field( name="/assign-manual", value="Manually assign a task to a user on ClickUp.", inline=False)
-    embed.add_field(name="/view-my-tasks", value="Get a list of all your tasks and their progress.", inline=False)
-    embed.add_field(name="/change-status", value="Change the status of one of your tasks.", inline=False)
-    embed.add_field(name="/confirm-status", value="Confirm the new status for a selected task.", inline=False)
-    embed.add_field(name="/summarize", value="Summarize and create tasks from discord conversations over a timeframe using AI.", inline=False)
-    embed.add_field(name="/revise-summary", value="Regenerate the created summary and tasks using user feedback.", inline=False)
-    embed.add_field(name="/create-tasks", value="Confirm the creation of the AI genrated tasks on ClickUp.", inline=False)
     embed.add_field(name="/help", value="Display all the bot commands", inline=False)
     embed.set_footer(text="Thank you for using Dipersa.")   
 

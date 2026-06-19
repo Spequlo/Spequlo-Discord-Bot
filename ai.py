@@ -95,7 +95,6 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     Classify the message into exactly one category:
     - `view_tasks`: Request to view assigned tasks.
     - `create_task`: Request to create a new task, including assigning/configuring a task proposed in the current conversation. Must have a clear action item or commitment. No brainstorming or loose ideas.
-    - `change_status`: Request to update an existing task's status.
     - `modify_task`: Request to edit one or more properties of an **already-existing** ClickUp task (assignee, deadline, priority, list, title, description).
     - `summarize_conversation`: Request to read channel history and produce a summary.
     - `unclear`: Does not map cleanly, or a required parameter is missing.
@@ -111,7 +110,6 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     - **deadline:** Explicit dates only → YYYY-MM-DD. Never invent.
     - **team / list_name:** Must exactly match Available Workspace Tree. If ambiguous, set both to null.
     - **assignee:** Use Message Assignee Hook if present. "me" / "I'll take it" → Sender. Otherwise null.
-    - **status:** `change_status` only. Use the exact string from the user's message.
     - **changes:** `modify_task` only. Object containing only the fields the user explicitly wants to change.
 
     ---
@@ -154,18 +152,6 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
         "clarifying_question":null
     }}
 
-    change_status:
-    {{
-        "intent":"change_status",
-        "confidence":"high|medium|low",
-        "params":{{
-            "task_id":"string|null",
-            "task_name":"string|null",
-            "status":"string|null"
-        }},
-        "clarifying_question":null
-    }}
-
     modify_task:
     {{
         "intent":"modify_task",
@@ -191,7 +177,9 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     {{
         "intent":"summarize_conversation",
         "confidence":"high|medium|low",
-        "params":{{}},
+        "params":{{
+            "message_count": 50
+        }},
         "clarifying_question":null
     }}
 

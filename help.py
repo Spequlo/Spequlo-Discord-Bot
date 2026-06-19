@@ -4,7 +4,7 @@ from server import *
 from datetime import datetime, timedelta, timezone
 
 task_cache = {}
-CACHE_TTL = 60
+CACHE_TTL = 3600
 
 def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
     url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
@@ -147,6 +147,7 @@ def simplifyTasks(tasks: list):
     return simplified
 
 
+
 def getListStatuses(TOKEN: str, LIST_ID: str):
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}"
     headers = {"Authorization": TOKEN}
@@ -231,6 +232,8 @@ def findAssignee(message, user) -> tuple[int | None, str | None]:
 
     return None, None
 
+
+
 async def viewTasksHandler(params, TOKEN):
     member_id = params["assignee_discord_id"]
     tasks = getCachedTasks(TOKEN, member_id)
@@ -292,11 +295,9 @@ def createTaskHandler(params, TOKEN):
         }
     }
 
-def changeStatusHandler(params, TOKEN):
-    pass
-
-def summarizeConversationHandler():
-    pass
-
 def modifyTaskHandler(params, TOKEN):
     pass
+
+def summarizeConversationHandler(params, TOKEN):
+    pass
+
