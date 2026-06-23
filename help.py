@@ -4,6 +4,7 @@ import time
 from server import *
 from ai import *
 from datetime import datetime, timedelta, timezone
+from dateutil import parser as dateparser
  
 task_cache = {}
 CACHE_TTL = 3600
@@ -85,7 +86,11 @@ async def createTaskHandler(params, TOKEN):
         raise ValueError(f"List ID not found!")
     LIST_ID = int(list_value)
 
-    result = await _createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
+    due_date = None
+    if params.get("deadline"):
+        due_date = _parseDeadline(params["deadline"])
+
+    result = await _createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc, due_date)
 
     if not result["success"]:
         if result.get("error") == "USER_NOT_FOUND":
@@ -113,6 +118,7 @@ async def createTaskHandler(params, TOKEN):
             "team": task["project"]["name"],
             "list_name": task["list"]["name"],
             "url": task["url"],
+            "deadline": task.get("due_date"),
             "assignee_discord_id": assignee_id,
             "creator_id": params["requestor_id"]
         }
@@ -147,11 +153,14 @@ async def modifyTaskHandler(params, TOKEN):
             "assignee_discord_id": changes.get("assignee_discord_id"),
             "team": changes.get("team"),
             "list_name": changes.get("list_name"),
+            "deadline": changes.get("deadline"),
             "requestor_id": params.get("creator_id")
         }
 
         result = await createTaskHandler(create_params, TOKEN)
-        task_cache.pop(changes.get("assignee_discord_id"), None)
+        task_cache.pop(params.get("assignee_discord_id"), None)
+        if changes.get("assignee_discord_id"):
+            task_cache.pop(changes["assignee_discord_id"], None)
         return result
         
     update_payload = {}
@@ -177,6 +186,14 @@ async def modifyTaskHandler(params, TOKEN):
         priority_map = {"1": "Urgent", "2": "High", "3": "Normal", "4": "Low"}
         changes_made.append(f"priority set to {priority_map.get(str(changes['priority']))}")
 
+    if "deadline" in changes:
+        if changes["deadline"] is None:
+            update_payload["due_date"] = None
+            changes_made.append("deadline removed")
+        else:
+            update_payload["due_date"] = _parseDeadline(changes["deadline"])
+            changes_made.append(f"deadline set to {changes['deadline']}")
+
     if not update_payload:
         return {"message": "No changes were specified.", "metadata": params}
     
@@ -191,7 +208,9 @@ async def modifyTaskHandler(params, TOKEN):
     except Exception as e:
         return {"message": f"Failed to update task: {str(e)}", "metadata": {}}
 
-    task_cache.pop(changes.get("assignee_discord_id"), None)
+    task_cache.pop(params.get("assignee_discord_id"), None)
+    if changes.get("assignee_discord_id"):
+        task_cache.pop(changes["assignee_discord_id"], None)
     return {
         "message": f"✅ Updated task '{params['task_name']}'\n" + "\n".join(f"• {c}" for c in changes_made),
         "metadata": {
@@ -247,7 +266,7 @@ async def helpHandler(params, TOKEN):
         "metadata": {}
     }
 
-async def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
+async def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = "", due_date: int | None = None): 
     member = getClickUpId(userID)
 
     if not member:
@@ -262,6 +281,10 @@ async def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority
         "priority": int(priority),
         "assignees": [int(member)]
     }
+
+    if due_date:
+        task_data["due_date"] = due_date
+
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
 
     headers = {
@@ -423,3 +446,9 @@ async def _moveTask(TOKEN: str, TASK_ID: str, LIST_ID: int):
                 "success": response.status == 200,
                 "response": body
             }
+
+def _parseDeadline(deadline: str) -> int:
+    dt = dateparser.isoparse(deadline)
+    if dt.tzinfo is None:
+        raise ValueError("Deadline must include timezone information.")
+    return int(dt.timestamp() * 1000)
