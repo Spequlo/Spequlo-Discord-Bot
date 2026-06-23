@@ -109,7 +109,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     - **task_id / task_name:** Pull from Referenced Metadata when the user refers to an existing task.
     - **name:** Short and actionable. For `create_task` only.
     - **priority:** 1 = Urgent, 2 = High, 3 = Normal (default), 4 = Low
-    - **deadline:** Explicit dates only → YYYY-MM-DD with ISO timestamps with timezone information. Never invent.
+    - **deadline:** Explicit dates only → YYYY-MM-DD. Never invent.
     - **team / list_name:** Must exactly match Available Workspace Tree. If ambiguous, set both to null.
     - **assignee_discord_id:** Use Message Assignee Hook ID if present. "me" / "I'll take it" → SENDER ID. Otherwise null. Do not default to the sender for `modify_task`. Use null when explicitly removing assignment.
     - **assignee_name:** Use Message Assignee Hook Name if present. "me" / "I'll take it" → SENDER NAME. Otherwise null. Do not default to the sender for `modify_task`. Use null when explicitly removing assignment.
@@ -155,7 +155,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
             "priority":"1|2|3|4|null",
             "assignee_discord_id":"string|null",
             "assignee_name":"string|null",
-            "deadline":"YYYY-MM-DDT00:00:00-00:00|null",
+            "deadline":"YYYY-MM-DD|null",
             "team":"string|null",
             "list_name":"string|null",
             "creator_id":"string|null",
@@ -178,7 +178,7 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
                 "description":"string|null",
                 "assignee_discord_id":"string|null",
                 "assignee_name":"string|null",
-                "deadline":"YYYY-MM-DDT00:00:00-00:00|null",
+                "deadline":"YYYY-MM-DD|null",
                 "priority":"1|2|3|4|null",
                 "team":"string|null",
                 "list_name":"string|null",
