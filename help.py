@@ -1,4 +1,3 @@
-# import requests
 import aiohttp
 import time
 from server import *
@@ -63,7 +62,9 @@ async def viewTasksHandler(params, TOKEN):
  
     return {
         "message": f'Here are all your tasks: \n{[t["task_name"] for t in tasks]}',
-        "metadata": tasks
+        "metadata": {
+            "tasks": tasks
+        }
     }
 
 async def createTaskHandler(params, TOKEN):
@@ -128,41 +129,39 @@ async def modifyTaskHandler(params, TOKEN):
     creator_id = str(params.get("creator_id"))
     requester_id = str(params.get("requester_discord_id"))
 
-    if creator_id and requester_id != creator_id:
-        return {
-            "message": "Only the task creator can modify this task.",
-            "metadata": {
-                "creator_id": creator_id,
-                "requester_id": requester_id
-            }
-        }
-    
     changes = params.get("changes", {})
-
     LIST_ID = None
     if changes.get("team") and changes.get("list_name"):
         list_value = getListId(changes["team"], changes["list_name"])
         if list_value is None:
             return {"message": "I couldn't find that destination list.", "metadata": {}}
+        LIST_ID = int(list_value)
+    
+    if not params.get("task_id"):
+        matches = await findTaskByName(TOKEN, params.get("requester_discord_id"), params.get("task_name"))
+        if len(matches) == 0:
+            return {"message": "I couldn't find that task.", "metadata": {}}
+        
+        if len(matches) > 1:
+            return {"message": "I found multiple matching tasks. Please be more specific.", "metadata": {"possible_tasks": matches}}
+        
+        task = matches[0]
+        
+        params["task_id"] = task["task_id"]
+        params["task_name"] = task["task_name"]
+        params["assignee_discord_id"] = (params.get("assignee_discord_id")or requester_id)
+        params["deadline"] = task.get("deadline")
+        params["list_id"] = task.get("list_id")
+        params["creator_id"] = task.get("creator_id")
+    
+    task_id = params.get("task_id")
+
+    if not task_id:
+        return {"message": "I couldn't determine which task you meant.", "metadata": {}}
 
     if not await _findTask(TOKEN, params['task_id']):
-        create_params = {
-            "name": changes.get("name") or params.get("task_name"),
-            "description": changes.get("description", ""),
-            "priority": changes.get("priority", 3),
-            "assignee_discord_id": changes.get("assignee_discord_id"),
-            "team": changes.get("team"),
-            "list_name": changes.get("list_name"),
-            "deadline": changes.get("deadline"),
-            "requestor_id": params.get("creator_id")
-        }
+        return {"message": "I couldn't find that task. Please use the correct name", "metadata": {}}
 
-        result = await createTaskHandler(create_params, TOKEN)
-        task_cache.pop(params.get("assignee_discord_id"), None)
-        if changes.get("assignee_discord_id"):
-            task_cache.pop(changes["assignee_discord_id"], None)
-        return result
-        
     update_payload = {}
     changes_made = []
 
@@ -185,6 +184,10 @@ async def modifyTaskHandler(params, TOKEN):
         update_payload["priority"] = int(changes["priority"])
         priority_map = {"1": "Urgent", "2": "High", "3": "Normal", "4": "Low"}
         changes_made.append(f"priority set to {priority_map.get(str(changes['priority']))}")
+
+    if changes.get("remove_assignee"):
+        update_payload["assignees"] = []
+        changes_made.append("assignee removed")
 
     if "deadline" in changes:
         if changes["deadline"] is None:
@@ -216,9 +219,12 @@ async def modifyTaskHandler(params, TOKEN):
         "metadata": {
             "task_id": params["task_id"],
             "task_name": changes.get("name", params["task_name"]),
-            "update_payload": update_payload,
-            "changes": changes,
-            "update_result": result
+            "creator_id": creator_id,
+            "assignee_discord_id": changes.get("assignee_discord_id", params.get("assignee_discord_id")),
+            "deadline": changes.get("deadline", params.get("deadline")),
+            "team": changes.get("team",  params.get("team")),
+            "list_name": changes.get("list_name", params.get("list_name")),
+            "list_id": LIST_ID or params.get("list_id")
         }
     }
 
@@ -452,3 +458,8 @@ def _parseDeadline(deadline: str) -> int:
     if dt.tzinfo is None:
         raise ValueError("Deadline must include timezone information.")
     return int(dt.timestamp() * 1000)
+
+async def findTaskByName(TOKEN: str, user_id: int, task_name: str):
+    tasks = await _getCachedTasks(TOKEN, user_id)
+    matches = [t for t in tasks if t["task_name"].lower() == task_name.lower()]
+    return matches
