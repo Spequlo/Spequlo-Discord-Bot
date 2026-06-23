@@ -1,11 +1,6 @@
 # Dipersa - Spequlo Discord Bot
 # Author - Edidiong Ekong
 
-# consider using aiohtttp incase multiple users want to use multiple request at the same time.
-# run through the code base for refactoring, particularly with metadata restructuring to ensure contet is preserved. Need to restructure the meta data and cache better to persist more cleanly.
-# Need to us a uniform data structure and names crross all achesc, metadata, and json llm outputs.
-# add a task check for modify task where the user has to have the bot grab all their tasks first, before being able to modify unless the task already exists in the bots cache or metadata.
-
 import discord
 from discord.ext import commands
 import logging 
