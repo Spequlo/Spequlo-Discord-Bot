@@ -65,8 +65,7 @@ async def viewTasksHandler(params, TOKEN):
         "metadata": tasks
     }
 
-
-def createTaskHandler(params, TOKEN):
+async def createTaskHandler(params, TOKEN):
     task_name = params["name"]
     task_desc = params["description"]
     priority = params.get("priority") or 3
@@ -86,17 +85,17 @@ def createTaskHandler(params, TOKEN):
         raise ValueError(f"List ID not found!")
     LIST_ID = int(list_value)
 
-    result = _createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
+    result = await _createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
 
     if not result["success"]:
         if result.get("error") == "USER_NOT_FOUND":
             return {
-                "message": ("I can't find the person you intended to assign this too. Please get them to signup with `/signup`."),
+                "message": "I can't find the person you intended to assign this to. Please get them to signup with `/signup`.",
                 "metadata": {}
             }
         
         return {
-            "message": f"Failed to create task. Error: {task.get('error')}",
+            "message": f"Failed to create task. Error: {result.get('error')}",
             "metadata": {"status_code": result.get("status_code")}
         }
 
@@ -108,7 +107,7 @@ def createTaskHandler(params, TOKEN):
             "task_id": task["id"],
             "task_name": task["name"],
             "task_description": task.get("description"),
-            "priority":     task["priority"]["id"] if task["priority"] else None,
+            "priority": task["priority"]["id"] if task["priority"] else None,
             "status": task["status"]["status"],
             "list_id": task["list"]["id"],
             "team": task["project"]["name"],
@@ -119,7 +118,7 @@ def createTaskHandler(params, TOKEN):
         }
     }
 
-def modifyTaskHandler(params, TOKEN):
+async def modifyTaskHandler(params, TOKEN):
     creator_id = str(params.get("creator_id"))
     requester_id = str(params.get("requester_discord_id"))
 
@@ -131,60 +130,32 @@ def modifyTaskHandler(params, TOKEN):
                 "requester_id": requester_id
             }
         }
-
-    update_payload = {}
-    changes_made = []
+    
     changes = params.get("changes", {})
 
     LIST_ID = None
     if changes.get("team") and changes.get("list_name"):
         list_value = getListId(changes["team"], changes["list_name"])
         if list_value is None:
-            return {
-                "message": "I couldn't find that destination list.",
-                "metadata": {}
-            }
-        LIST_ID = int(list_value)
+            return {"message": "I couldn't find that destination list.", "metadata": {}}
 
-    if not _findTask(TOKEN, params['task_id']):
-        user_id = changes.get("assignee_discord_id")
-        task_name = (changes.get("name") or params.get("task_name"))
-
-        if LIST_ID is None:
-            raise ValueError(f"List ID not found!")
-
-        result = _createTask(TOKEN, user_id, task_name, LIST_ID, changes.get("priority"), changes.get("description"))
-        if not result["success"]:
-            if result.get("error") == "USER_NOT_FOUND":
-                return {
-                    "message": ("I can't find the person you intended to assign this too. Please get them to signup with `/signup`."),
-                    "metadata": {}
-                }
-            
-            return {
-                "message": ("Failed to create task. Error: {task.get('error')}"),
-                "metadata": {"status_code": result.get("status_code")}
-            }
-
-        task = result["data"]
-        task_cache.pop(changes.get("assignee_discord_id"), None)
-
-        return {
-            "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
-            "metadata": {
-                "task_id": task["id"],
-                "task_name": task["name"],
-                "task_description": task.get("description"),
-                "priority":     task["priority"]["id"] if task["priority"] else None,
-                "status": task["status"]["status"],
-                "list_id": task["list"]["id"],
-                "team": task["project"]["name"],
-                "list_name": task["list"]["name"],
-                "url": task["url"],
-                "assignee_discord_id": changes.get("assignee_discord_id"),
-                "creator_id": params["creator_id"]
-            }
+    if not await _findTask(TOKEN, params['task_id']):
+        create_params = {
+            "name": changes.get("name") or params.get("task_name"),
+            "description": changes.get("description", ""),
+            "priority": changes.get("priority", 3),
+            "assignee_discord_id": changes.get("assignee_discord_id"),
+            "team": changes.get("team"),
+            "list_name": changes.get("list_name"),
+            "requestor_id": params.get("creator_id")
         }
+
+        result = await createTaskHandler(create_params, TOKEN)
+        task_cache.pop(changes.get("assignee_discord_id"), None)
+        return result
+        
+    update_payload = {}
+    changes_made = []
 
     if changes.get("name"):
         update_payload["name"] = str(changes["name"])
@@ -192,58 +163,37 @@ def modifyTaskHandler(params, TOKEN):
 
     if changes.get("description"):
         update_payload["description"] = str(changes["description"])
-        changes_made.append( "description updated")
-       
+        changes_made.append("description updated")
+
     if changes.get("assignee_discord_id"):
         clickup_id = getClickUpId(changes["assignee_discord_id"])
         if clickup_id is None:
-            return {
-                "message": "USER_NOT_FOUND",
-                "metadate": ""
-            }
+            return {"message": "USER_NOT_FOUND", "metadata": ""}
         update_payload["assignees"] = [int(clickup_id)]
         changes_made.append(f"assigned to {changes['assignee_name']}")
 
     if changes.get("priority"):
         update_payload["priority"] = int(changes["priority"])
-        priority_map = {
-            "1": "Urgent",
-            "2": "High",
-            "3": "Normal",
-            "4": "Low"
-        }
-        changes_made.append(f"priority set to {priority_map.get(changes['priority'])}")
-    
-    # if changes.get("deadline"):
-    #     update_payload["due_date"] = changes["deadline"]
-    #     changes_made.append(f"deadline set to {changes['deadline']}")
-  
+        priority_map = {"1": "Urgent", "2": "High", "3": "Normal", "4": "Low"}
+        changes_made.append(f"priority set to {priority_map.get(str(changes['priority']))}")
+
     if not update_payload:
-        return {
-            "message": "No changes were specified.",
-            "metadata": params
-        }
+        return {"message": "No changes were specified.", "metadata": params}
     
     try:
-        result = _updateTask(TOKEN, params['task_id'], update_payload)
+        result = await _updateTask(TOKEN, params["task_id"], update_payload)
         if LIST_ID:
-            move_result = _moveTask(TOKEN, params["task_id"], LIST_ID)
+            move_result = await _moveTask(TOKEN, params["task_id"], LIST_ID)
             if move_result["success"]:
                 changes_made.append(f"moved to {changes['team']} → {changes['list_name']}")
             else:
-                return {
-                    "message": "Task updated but failed to move lists.",
-                    "metadata": move_result
-                }
+                return {"message": "Task updated but failed to move lists.", "metadata": move_result}
     except Exception as e:
-        return {
-            "message": f"Failed to update task: {str(e)}",
-            "metadata": {}
-        }
+        return {"message": f"Failed to update task: {str(e)}", "metadata": {}}
 
     task_cache.pop(changes.get("assignee_discord_id"), None)
     return {
-        "message": (f"✅ Updated task '{params['task_name']}'\n"  + "\n".join(f"• {c}" for c in changes_made)),
+        "message": f"✅ Updated task '{params['task_name']}'\n" + "\n".join(f"• {c}" for c in changes_made),
         "metadata": {
             "task_id": params["task_id"],
             "task_name": changes.get("name", params["task_name"]),
@@ -252,7 +202,6 @@ def modifyTaskHandler(params, TOKEN):
             "update_result": result
         }
     }
-
 
 async def summarizeConversationHandler(params, TOKEN):
     transcript = params["transcript"]
