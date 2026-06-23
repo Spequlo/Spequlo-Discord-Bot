@@ -1,10 +1,13 @@
-from google import genai
-from google.genai import types
+from openai import OpenAI
 import os
 import json
 from dotenv import load_dotenv
 
 load_dotenv()
+
+MODAL_BASE_URL = os.getenv("MODAL_BASE_URL")
+MODAL_API_KEY = os.getenv("MODAL_API_KEY", "EMPTY")
+MODEL_NAME = os.getenv("MODAL_MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 
 TEAM_LISTS = """
 Team: mobile_app
@@ -68,7 +71,7 @@ Examples:
 → list_name: list
 """
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+client = OpenAI(base_url=MODAL_BASE_URL, api_key=MODAL_API_KEY)
 
 def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int | None, assignee_name: str | None):
     prompt = rf"""
@@ -218,11 +221,8 @@ def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id: int
     """
 
     try:
-        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
-        text = response.text
-        if text is None:
-            raise ValueError("Gemini returned an empty response")
-        text = text.strip()
+        text = _call_llm(prompt)
+        text = _strip_code_fences(text)
         result = json.loads(text)
 
         required = {"intent", "confidence", "params", "clarifying_question"}
@@ -281,14 +281,11 @@ def summarizeTranscript(transcript: str):
     """
 
     try:
-        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
-        text = response.text
-        if text is None:
-            raise ValueError("Gemini returned an empty response")
-        text = text.strip()
+        text = _call_llm(prompt, max_tokens=2048)
+        text = _strip_code_fences(text)
         result = json.loads(text)
 
-        required = {"intent", "confidence", "params", "clarifying_question"}
+        required = {"summary", "action_items", "open_questions"}
         missing = required - result.keys()
 
         if missing:
@@ -305,3 +302,33 @@ def summarizeTranscript(transcript: str):
         elif "RESOURCE_EXHAUSTED" in error_text:
             raise RuntimeError("QUOTA_EXCEEDED")
         raise
+
+def _call_llm(prompt: str, max_tokens: int = 1024, temperature: float = 0.2) -> str:
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format={"type": "json_object"},
+        )
+    except Exception:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+ 
+    text = response.choices[0].message.content
+    if text is None:
+        raise ValueError("Llama returned an empty response")
+    return text.strip()
+ 
+def _strip_code_fences(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+    return text.strip()
