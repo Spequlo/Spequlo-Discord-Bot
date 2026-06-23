@@ -1,7 +1,9 @@
 import modal
 import os
 
+MODEL_NAME = os.getenv("MODAL_MODEL_NAME")
 MODEL_URL=os.getenv("MODAL_BASE_URL")
+VLLM_API_KEY = os.getenv("HF_API_KEY")
 
 vllm_image = (modal.Image.debian_slim(python_version="3.11").pip_install("vllm==0.6.3.post1", "huggingface_hub[hf_transfer]==0.25.2").env({"HF_HUB_ENABLE_HF_TRANSFER": "1"}))
 app = modal.App("llama-discord-bot")
@@ -17,19 +19,10 @@ MINUTES = 60
 
 def serve():
     import subprocess
-    from typing import cast, List
+    assert MODEL_NAME is not None
+    assert VLLM_API_KEY is not None
 
-    MODEL_NAME = os.getenv("MODAL_MODEL_NAME")
-    if MODEL_NAME is None:
-        raise ValueError("MODAL_MODEL_NAME is not set")
-    MODEL_NAME = cast(str, MODEL_NAME)
-
-    VLLM_API_KEY = os.getenv("HF_API_KEY")
-    if VLLM_API_KEY is None:
-        raise ValueError("HF_API_KEY is not set")
-    VLLM_API_KEY = cast(str, VLLM_API_KEY)
-
-    cmd: List[str] = [
+    subprocess.Popen([
         "python", "-m", "vllm.entrypoints.openai.api_server",
         "--model", MODEL_NAME,
         "--host", "0.0.0.0",
@@ -38,5 +31,4 @@ def serve():
         "--max-model-len", "4096",
         "--gpu-memory-utilization", "0.90",
         "--dtype", "bfloat16",
-]
-    subprocess.Popen(cmd)
+    ])
