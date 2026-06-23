@@ -1,9 +1,10 @@
-import requests
+# import requests
+import aiohttp
 import time
 from server import *
 from ai import *
 from datetime import datetime, timedelta, timezone
-
+ 
 task_cache = {}
 CACHE_TTL = 3600
 
@@ -19,21 +20,20 @@ def findAssignee(message, user) -> tuple[int | None, str | None]:
 
     return None, None
 
-def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
+async def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
     url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
-    headers = {
-        "Authorization": TOKEN,
-    }
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == 200:
-        data = response.json()
-        members = data['team']['members']
-        for member in members:
-            user_id = member['user']['id']
-            if userID == user_id:
-                return True     
-        return False
+    headers = {"Authorization": TOKEN}
+ 
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as response:
+            if response.status == 200:
+                data = await response.json()
+                members = data["team"]["members"]
+                for member in members:
+                    user_id = member["user"]["id"]
+                    if userID == user_id:
+                        return True
+            return False
 
 def parseTimeframe(timeframe: str):
     if timeframe.lower() == "today":
@@ -58,12 +58,13 @@ def parseTimeframe(timeframe: str):
 
 async def viewTasksHandler(params, TOKEN):
     member_id = params["assignee_discord_id"]
-    tasks = _getCachedTasks(TOKEN, member_id)
-
+    tasks = await _getCachedTasks(TOKEN, member_id)
+ 
     return {
         "message": f'Here are all your tasks: \n{[t["task_name"] for t in tasks]}',
         "metadata": tasks
     }
+
 
 def createTaskHandler(params, TOKEN):
     task_name = params["name"]
@@ -95,7 +96,7 @@ def createTaskHandler(params, TOKEN):
             }
         
         return {
-            "message": ("Failed to create task. Error: {task.get('error')}"),
+            "message": f"Failed to create task. Error: {task.get('error')}",
             "metadata": {"status_code": result.get("status_code")}
         }
 
@@ -252,51 +253,52 @@ def modifyTaskHandler(params, TOKEN):
         }
     }
 
-def summarizeConversationHandler(params, TOKEN):
+
+async def summarizeConversationHandler(params, TOKEN):
     transcript = params["transcript"]
     result = summarizeTranscript(transcript[-12000:])
-
+ 
     summary = result.get("summary", "No summary generated.")
     action_items = result.get("action_items", [])
     open_questions = result.get("open_questions", [])
-
+ 
     message = f"## 📝 Conversation Summary\n\n{summary}"
-
+ 
     if action_items:
         message += "\n\n### ✅ Action Items"
         for item in action_items:
             message += f"\n• {item}"
-
+ 
     if open_questions:
         message += "\n\n### ❓ Open Questions"
         for question in open_questions:
             message += f"\n• {question}"
-
+ 
     return {
-        "message": message, 
-        "metadata":{     
+        "message": message,
+        "metadata": {
             "summary_response": result,
             "transcript_length": len(transcript)
         }
     }
 
-def helpHandler(params, TOKEN):
+async def helpHandler(params, TOKEN):
     return{
         "message": (
             "I can help manage ClickUp tasks. Just tell me what you want :)\n\n"
             "**Examples for how to use me**\n"
-            "• @bot create a task to add OAuth support\n"
-            "• @bot assign this task to @OnlyRafael\n"
-            "• @bot move this to backlog\n"
-            "• @bot show my tasks\n"
-            "• @bot show @DrexRegion's tasks\n"
-            "• @bot summarize the last 50 messages\n"
-            "• @bot what did they talk about today\n"
+            "• @Dipersa create a task to add OAuth support\n"
+            "• @Dipersa assign this task to @OnlyRafael\n"
+            "• @Dipersa move this to backlog\n"
+            "• @Dipersa show my tasks\n"
+            "• @Dipersa show @DrexRegion's tasks\n"
+            "• @Dipersa summarize the last 50 messages\n"
+            "• @Dipersa what did they talk about today\n"
         ),
         "metadata": {}
     }
 
-def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
+async def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
     member = getClickUpId(userID)
 
     if not member:
@@ -319,29 +321,30 @@ def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int,
     }
 
     try:
-        response = requests.post(url, json=task_data, headers=headers)
-        if response.status_code not in (200, 201):
-            try:
-                error_body = response.json()
-            except Exception:
-                error_body = response.text
-
-            return {
-                "success": False,
-                "status_code": response.status_code,
-                "error": error_body
-            }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=task_data, headers=headers) as response:
+                if response.status not in (200, 201):
+                    try:
+                        error_body = await response.json()
+                    except Exception:
+                        error_body = await response.text()
+ 
+                    return {
+                        "success": False,
+                        "status_code": response.status,
+                        "error": error_body
+                    }
+                return {
+                    "success": True,
+                    "data": await response.json()
+                }
+    except aiohttp.ClientError as e:
         return {
-            "success": True,
-            "data": response.json()
-        }
-    except requests.RequestException as e:
-        return{
             "success": False,
             "error": str(e)
         }
-
-def _getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
+       
+async def _getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
     FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure", "website"]
     LISTS = ["backlog", "current_sprint", "bugs"]
 
@@ -355,36 +358,37 @@ def _getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
 
     teams = [team] if team else FOLDERS
 
-    for team in teams:
-        lists = ["list"] if team == "website" else LISTS
-        if list:
-            lists = [list] if list in lists else []
+    async with aiohttp.ClientSession() as session:
+        for team in teams:
+            lists = ["list"] if team == "website" else LISTS
+            if list:
+                lists = [list] if list in lists else []
 
-        for lst in lists:
-            listId = getListId(team, lst)
-            if not listId:
-                raise ValueError(f"No list ID found for {team}/{list}")
-            url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
-            response = requests.get(url, headers=headers, params=params)
+            for lst in lists:
+                listId = getListId(team, lst)
+                if not listId:
+                    raise ValueError(f"No list ID found for {team}/{list}")
+                url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
+                async with session.get(url, headers=headers, params=params) as response:
+                    if response.status != 200:
+                        text = await response.text()
+                        print(f"Error fetching {team}/{list}: {response.status} - {text}")
+                        raise PermissionError(f"ClickUp request failed: {response.status}")
 
-            if response.status_code != 200:
-                print(f"Error fetching {team}/{list}: {response.status_code} - {response.text}")
-                raise PermissionError(f"ClickUp request failed: {response.status_code}")
+                    data = await response.json()
+                    if "tasks" in data:
+                        allTasks.extend(data["tasks"])
+        if not allTasks:
+            raise ValueError("You have no assigned tasks.")
+        return allTasks
 
-            data = response.json()
-            if "tasks" in data:
-                allTasks.extend(data["tasks"])
-    if not allTasks:
-        raise ValueError("You have no assigned tasks.")
-    return allTasks
-
-def _getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
+async def _getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
     cached = task_cache.get(user_id)
 
     if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
         return cached["tasks"]
 
-    tasks = _getTasks(token, user_id, team, list_name)
+    tasks = await _getTasks(token, user_id, team, list_name)
 
     if isinstance(tasks, list):
         task_cache[user_id] = {
@@ -420,51 +424,53 @@ def _simplifyTasks(tasks: list):
 
     return simplified
 
-def _findTask(TOKEN: str, task_id: str):
+async def _findTask(TOKEN: str, task_id: str):
     url = f"https://api.clickup.com/api/v2/task/{task_id}"
     headers={"Authorization": TOKEN}
 
-    response = requests.get(url, headers)
-    if response.status_code != 200:
-        return None
-
-    return response.json()
-
-def _updateTask(TOKEN: str, task_id: int, payload: dict):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as response:
+            if response.status != 200:
+                return None
+            return await response.json()
+        
+async def _updateTask(TOKEN: str, task_id: int, payload: dict):
     url = f"https://api.clickup.com/api/v2/task/{task_id}"
     headers={
         "Authorization": TOKEN,
         "Content-Type": "application/json"
     }
 
-    response = requests.put(url, headers, json=payload)
+    async with aiohttp.ClientSession() as session:
+        async with session.put(url, json=payload, headers=headers) as response:
+            try:
+                body = await response.json()
+            except Exception:
+                body = {}
+ 
+            return {
+                "status_code": response.status,
+                "success": response.status == 200,
+                "response": body
+            }
 
-    try:
-        body = response.json()
-    except Exception:
-        body = {}
-
-    return {
-        "status_code": response.status_code,
-        "success": response.status_code == 200,
-        "response": body
-    }
-
-def _moveTask(TOKEN: str, TASK_ID: str, LIST_ID: int):
+async def _moveTask(TOKEN: str, TASK_ID: str, LIST_ID: int):
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task/{TASK_ID}"
     headers={
         "Authorization": TOKEN,
         "Content-Type": "application/json"
     }
-    response = requests.post(url, headers)
+    payload = {"list_id": LIST_ID}
 
-    try:
-        body = response.json()
-    except Exception:
-        body = {}
-
-    return {
-        "success": response.status_code in (200, 201),
-        "status_code": response.status_code,
-        "response": body
-    }
+    async with aiohttp.ClientSession() as session:
+        async with session.put(url, json=payload, headers=headers) as response:
+            try:
+                body = await response.json()
+            except Exception:
+                body = {}
+ 
+            return {
+                "status_code": response.status,
+                "success": response.status == 200,
+                "response": body
+            }
