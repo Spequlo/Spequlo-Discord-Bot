@@ -1,4 +1,4 @@
-import aiohttp
+import requests
 import time
 from server import *
 from ai import *
@@ -21,20 +21,21 @@ def findAssignee(message, user) -> tuple[int | None, str | None]:
 
     return None, None
 
-async def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
+def validateClickUp(TEAM_ID: int, TOKEN: str, userID: int):
     url = f"https://api.clickup.com/api/v2/team/{TEAM_ID}"
-    headers = {"Authorization": TOKEN}
- 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status == 200:
-                data = await response.json()
-                members = data["team"]["members"]
-                for member in members:
-                    user_id = member["user"]["id"]
-                    if userID == user_id:
-                        return True
-            return False
+    headers = {
+        "Authorization": TOKEN,
+    }
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        members = data['team']['members']
+        for member in members:
+            user_id = member['user']['id']
+            if userID == user_id:
+                return True     
+        return False
 
 def parseTimeframe(timeframe: str):
     if timeframe.lower() == "today":
@@ -59,16 +60,14 @@ def parseTimeframe(timeframe: str):
 
 async def viewTasksHandler(params, TOKEN):
     member_id = params["assignee_discord_id"]
-    tasks = await _getCachedTasks(TOKEN, member_id)
- 
+    tasks = _getCachedTasks(TOKEN, member_id)
+
     return {
         "message": f'Here are all your tasks: \n{[t["task_name"] for t in tasks]}',
-        "metadata": {
-            "tasks": tasks
-        }
+        "metadata": tasks
     }
 
-async def createTaskHandler(params, TOKEN):
+def createTaskHandler(params, TOKEN):
     task_name = params["name"]
     task_desc = params["description"]
     priority = params.get("priority") or 3
@@ -88,21 +87,17 @@ async def createTaskHandler(params, TOKEN):
         raise ValueError(f"List ID not found!")
     LIST_ID = int(list_value)
 
-    due_date = None
-    if params.get("deadline"):
-        due_date = _parseDeadline(params["deadline"])
-
-    result = await _createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc, due_date)
+    result = _createTask(TOKEN, assignee_id, task_name, LIST_ID, int(priority), task_desc)
 
     if not result["success"]:
         if result.get("error") == "USER_NOT_FOUND":
             return {
-                "message": "I can't find the person you intended to assign this to. Please get them to signup with `/signup`.",
+                "message": ("I can't find the person you intended to assign this too. Please get them to signup with `/signup`."),
                 "metadata": {}
             }
         
         return {
-            "message": f"Failed to create task. Error: {result.get('error')}",
+            "message": ("Failed to create task. Error: {task.get('error')}"),
             "metadata": {"status_code": result.get("status_code")}
         }
 
@@ -114,57 +109,83 @@ async def createTaskHandler(params, TOKEN):
             "task_id": task["id"],
             "task_name": task["name"],
             "task_description": task.get("description"),
-            "priority": task["priority"]["id"] if task["priority"] else None,
+            "priority":     task["priority"]["id"] if task["priority"] else None,
             "status": task["status"]["status"],
             "list_id": task["list"]["id"],
             "team": task["project"]["name"],
             "list_name": task["list"]["name"],
             "url": task["url"],
-            "deadline": task.get("due_date"),
             "assignee_discord_id": assignee_id,
             "creator_id": params["requestor_id"]
         }
     }
 
-async def modifyTaskHandler(params, TOKEN):
+def modifyTaskHandler(params, TOKEN):
     creator_id = str(params.get("creator_id"))
     requester_id = str(params.get("requester_discord_id"))
 
+    if creator_id and requester_id != creator_id:
+        return {
+            "message": "Only the task creator can modify this task.",
+            "metadata": {
+                "creator_id": creator_id,
+                "requester_id": requester_id
+            }
+        }
+
+    update_payload = {}
+    changes_made = []
     changes = params.get("changes", {})
+
     LIST_ID = None
     if changes.get("team") and changes.get("list_name"):
         list_value = getListId(changes["team"], changes["list_name"])
         if list_value is None:
-            return {"message": "I couldn't find that destination list.", "metadata": {}}
+            return {
+                "message": "I couldn't find that destination list.",
+                "metadata": {}
+            }
         LIST_ID = int(list_value)
-    
-    if not params.get("task_id"):
-        matches = await findTaskByName(TOKEN, params.get("requester_discord_id"), params.get("task_name"))
-        if len(matches) == 0:
-            return {"message": "I couldn't find that task.", "metadata": {}}
-        
-        if len(matches) > 1:
-            return {"message": "I found multiple matching tasks. Please be more specific.", "metadata": {"possible_tasks": matches}}
-        
-        task = matches[0]
-        
-        params["task_id"] = task["task_id"]
-        params["task_name"] = task["task_name"]
-        params["assignee_discord_id"] = (params.get("assignee_discord_id")or requester_id)
-        params["deadline"] = task.get("deadline")
-        params["list_id"] = task.get("list_id")
-        params["creator_id"] = task.get("creator_id")
-    
-    task_id = params.get("task_id")
 
-    if not task_id:
-        return {"message": "I couldn't determine which task you meant.", "metadata": {}}
+    if not _findTask(TOKEN, params['task_id']):
+        user_id = changes.get("assignee_discord_id")
+        task_name = (changes.get("name") or params.get("task_name"))
 
-    if not await _findTask(TOKEN, params['task_id']):
-        return {"message": "I couldn't find that task. Please use the correct name", "metadata": {}}
+        if LIST_ID is None:
+            raise ValueError(f"List ID not found!")
 
-    update_payload = {}
-    changes_made = []
+        result = _createTask(TOKEN, user_id, task_name, LIST_ID, changes.get("priority"), changes.get("description"))
+        if not result["success"]:
+            if result.get("error") == "USER_NOT_FOUND":
+                return {
+                    "message": ("I can't find the person you intended to assign this too. Please get them to signup with `/signup`."),
+                    "metadata": {}
+                }
+            
+            return {
+                "message": ("Failed to create task. Error: {task.get('error')}"),
+                "metadata": {"status_code": result.get("status_code")}
+            }
+
+        task = result["data"]
+        task_cache.pop(changes.get("assignee_discord_id"), None)
+
+        return {
+            "message": f'Created task "{task["name"]}" in {task["project"]["name"]} → {task["list"]["name"]}',
+            "metadata": {
+                "task_id": task["id"],
+                "task_name": task["name"],
+                "task_description": task.get("description"),
+                "priority":     task["priority"]["id"] if task["priority"] else None,
+                "status": task["status"]["status"],
+                "list_id": task["list"]["id"],
+                "team": task["project"]["name"],
+                "list_name": task["list"]["name"],
+                "url": task["url"],
+                "assignee_discord_id": changes.get("assignee_discord_id"),
+                "creator_id": params["creator_id"]
+            }
+        }
 
     if changes.get("name"):
         update_payload["name"] = str(changes["name"])
@@ -172,108 +193,112 @@ async def modifyTaskHandler(params, TOKEN):
 
     if changes.get("description"):
         update_payload["description"] = str(changes["description"])
-        changes_made.append("description updated")
-
+        changes_made.append( "description updated")
+       
     if changes.get("assignee_discord_id"):
         clickup_id = getClickUpId(changes["assignee_discord_id"])
         if clickup_id is None:
-            return {"message": "USER_NOT_FOUND", "metadata": ""}
+            return {
+                "message": "USER_NOT_FOUND",
+                "metadate": ""
+            }
         update_payload["assignees"] = [int(clickup_id)]
         changes_made.append(f"assigned to {changes['assignee_name']}")
 
     if changes.get("priority"):
         update_payload["priority"] = int(changes["priority"])
-        priority_map = {"1": "Urgent", "2": "High", "3": "Normal", "4": "Low"}
-        changes_made.append(f"priority set to {priority_map.get(str(changes['priority']))}")
-
-    if changes.get("remove_assignee"):
-        update_payload["assignees"] = []
-        changes_made.append("assignee removed")
-
-    if "deadline" in changes:
-        if changes["deadline"] is None:
-            update_payload["due_date"] = None
-            changes_made.append("deadline removed")
-        else:
-            update_payload["due_date"] = _parseDeadline(changes["deadline"])
-            changes_made.append(f"deadline set to {changes['deadline']}")
-
+        priority_map = {
+            "1": "Urgent",
+            "2": "High",
+            "3": "Normal",
+            "4": "Low"
+        }
+        changes_made.append(f"priority set to {priority_map.get(changes['priority'])}")
+    
+    # if changes.get("deadline"):
+    #     update_payload["due_date"] = changes["deadline"]
+    #     changes_made.append(f"deadline set to {changes['deadline']}")
+  
     if not update_payload:
-        return {"message": "No changes were specified.", "metadata": params}
+        return {
+            "message": "No changes were specified.",
+            "metadata": params
+        }
     
     try:
-        result = await _updateTask(TOKEN, params["task_id"], update_payload)
+        result = _updateTask(TOKEN, params['task_id'], update_payload)
         if LIST_ID:
-            move_result = await _moveTask(TOKEN, params["task_id"], LIST_ID)
+            move_result = _moveTask(TOKEN, params["task_id"], LIST_ID)
             if move_result["success"]:
                 changes_made.append(f"moved to {changes['team']} → {changes['list_name']}")
             else:
-                return {"message": "Task updated but failed to move lists.", "metadata": move_result}
+                return {
+                    "message": "Task updated but failed to move lists.",
+                    "metadata": move_result
+                }
     except Exception as e:
-        return {"message": f"Failed to update task: {str(e)}", "metadata": {}}
+        return {
+            "message": f"Failed to update task: {str(e)}",
+            "metadata": {}
+        }
 
-    task_cache.pop(params.get("assignee_discord_id"), None)
-    if changes.get("assignee_discord_id"):
-        task_cache.pop(changes["assignee_discord_id"], None)
+    task_cache.pop(changes.get("assignee_discord_id"), None)
     return {
-        "message": f"✅ Updated task '{params['task_name']}'\n" + "\n".join(f"• {c}" for c in changes_made),
+        "message": (f"✅ Updated task '{params['task_name']}'\n"  + "\n".join(f"• {c}" for c in changes_made)),
         "metadata": {
             "task_id": params["task_id"],
             "task_name": changes.get("name", params["task_name"]),
-            "creator_id": creator_id,
-            "assignee_discord_id": changes.get("assignee_discord_id", params.get("assignee_discord_id")),
-            "deadline": changes.get("deadline", params.get("deadline")),
-            "team": changes.get("team",  params.get("team")),
-            "list_name": changes.get("list_name", params.get("list_name")),
-            "list_id": LIST_ID or params.get("list_id")
+            "update_payload": update_payload,
+            "changes": changes,
+            "update_result": result
         }
     }
 
-async def summarizeConversationHandler(params, TOKEN):
+def summarizeConversationHandler(params, TOKEN):
     transcript = params["transcript"]
     result = await summarizeTranscript(transcript[-12000:])
  
     summary = result.get("summary", "No summary generated.")
     action_items = result.get("action_items", [])
     open_questions = result.get("open_questions", [])
- 
+
     message = f"## 📝 Conversation Summary\n\n{summary}"
- 
+
     if action_items:
         message += "\n\n### ✅ Action Items"
         for item in action_items:
             message += f"\n• {item}"
- 
+
     if open_questions:
         message += "\n\n### ❓ Open Questions"
         for question in open_questions:
             message += f"\n• {question}"
- 
+
     return {
-        "message": message,
-        "metadata": {
+        "message": message, 
+        "metadata":{     
             "summary_response": result,
             "transcript_length": len(transcript)
         }
     }
 
-async def helpHandler(params, TOKEN):
+def helpHandler(params, TOKEN):
     return{
         "message": (
             "I can help manage ClickUp tasks. Just tell me what you want :)\n\n"
             "**Examples for how to use me**\n"
-            "• @Dipersa create a task to add OAuth support\n"
-            "• @Dipersa assign this task to @OnlyRafael\n"
-            "• @Dipersa move this to backlog\n"
-            "• @Dipersa show my tasks\n"
-            "• @Dipersa show @DrexRegion's tasks\n"
-            "• @Dipersa summarize the last 50 messages\n"
-            "• @Dipersa what did they talk about today\n"
+            "• @bot create a task to add OAuth support\n"
+            "• @bot assign this task to @OnlyRafael\n"
+            "• @bot move this to backlog\n"
+            "• @bot show my tasks\n"
+            "• @bot show @DrexRegion's tasks\n"
+            "• @bot summarize the last 50 messages\n"
+            "• @bot what did they talk about today\n"
         ),
         "metadata": {}
     }
 
-async def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = "", due_date: int | None = None): 
+def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority: int, desc: str = ""): 
     member = getClickUpId(userID)
 
     if not member:
@@ -288,10 +313,6 @@ async def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority
         "priority": int(priority),
         "assignees": [int(member)]
     }
-
-    if due_date:
-        task_data["due_date"] = due_date
-
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task"
 
     headers = {
@@ -300,30 +321,29 @@ async def _createTask(TOKEN: str, userID: int, task: str, LIST_ID: int, priority
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=task_data, headers=headers) as response:
-                if response.status not in (200, 201):
-                    try:
-                        error_body = await response.json()
-                    except Exception:
-                        error_body = await response.text()
- 
-                    return {
-                        "success": False,
-                        "status_code": response.status,
-                        "error": error_body
-                    }
-                return {
-                    "success": True,
-                    "data": await response.json()
-                }
-    except aiohttp.ClientError as e:
+        response = requests.post(url, json=task_data, headers=headers)
+        if response.status_code not in (200, 201):
+            try:
+                error_body = response.json()
+            except Exception:
+                error_body = response.text
+
+            return {
+                "success": False,
+                "status_code": response.status_code,
+                "error": error_body
+            }
         return {
+            "success": True,
+            "data": response.json()
+        }
+    except requests.RequestException as e:
+        return{
             "success": False,
             "error": str(e)
         }
-       
-async def _getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
+
+def _getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
     FOLDERS = ["mobile_app", "integration", "internal_tools", "infrastructure", "website"]
     LISTS = ["backlog", "current_sprint", "bugs"]
 
@@ -337,37 +357,36 @@ async def _getTasks(TOKEN: str, userId: int, team: str = "", list: str = ""):
 
     teams = [team] if team else FOLDERS
 
-    async with aiohttp.ClientSession() as session:
-        for team in teams:
-            lists = ["list"] if team == "website" else LISTS
-            if list:
-                lists = [list] if list in lists else []
+    for team in teams:
+        lists = ["list"] if team == "website" else LISTS
+        if list:
+            lists = [list] if list in lists else []
 
-            for lst in lists:
-                listId = getListId(team, lst)
-                if not listId:
-                    raise ValueError(f"No list ID found for {team}/{list}")
-                url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
-                async with session.get(url, headers=headers, params=params) as response:
-                    if response.status != 200:
-                        text = await response.text()
-                        print(f"Error fetching {team}/{list}: {response.status} - {text}")
-                        raise PermissionError(f"ClickUp request failed: {response.status}")
+        for lst in lists:
+            listId = getListId(team, lst)
+            if not listId:
+                raise ValueError(f"No list ID found for {team}/{list}")
+            url = f"https://api.clickup.com/api/v2/list/{int(listId)}/task"
+            response = requests.get(url, headers=headers, params=params)
 
-                    data = await response.json()
-                    if "tasks" in data:
-                        allTasks.extend(data["tasks"])
-        if not allTasks:
-            raise ValueError("You have no assigned tasks.")
-        return allTasks
+            if response.status_code != 200:
+                print(f"Error fetching {team}/{list}: {response.status_code} - {response.text}")
+                raise PermissionError(f"ClickUp request failed: {response.status_code}")
 
-async def _getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
+            data = response.json()
+            if "tasks" in data:
+                allTasks.extend(data["tasks"])
+    if not allTasks:
+        raise ValueError("You have no assigned tasks.")
+    return allTasks
+
+def _getCachedTasks(token: str, user_id: int, team: str = "", list_name: str = ""):
     cached = task_cache.get(user_id)
 
     if cached and (time.time() - cached["fetched_at"]) < CACHE_TTL:
         return cached["tasks"]
 
-    tasks = await _getTasks(token, user_id, team, list_name)
+    tasks = _getTasks(token, user_id, team, list_name)
 
     if isinstance(tasks, list):
         task_cache[user_id] = {
@@ -403,62 +422,48 @@ def _simplifyTasks(tasks: list):
 
     return simplified
 
-async def _findTask(TOKEN: str, task_id: str):
+def _findTask(TOKEN: str, task_id: str):
     url = f"https://api.clickup.com/api/v2/task/{task_id}"
     headers={"Authorization": TOKEN}
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return None
-            return await response.json()
-        
-async def _updateTask(TOKEN: str, task_id: int, payload: dict):
+    response = requests.get(url, headers)
+    if response.status_code != 200:
+        return None
+
+    return response.json()
+
+def _updateTask(TOKEN: str, task_id: int, payload: dict):
     url = f"https://api.clickup.com/api/v2/task/{task_id}"
     headers={
         "Authorization": TOKEN,
         "Content-Type": "application/json"
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.put(url, json=payload, headers=headers) as response:
-            try:
-                body = await response.json()
-            except Exception:
-                body = {}
- 
-            return {
-                "status_code": response.status,
-                "success": response.status == 200,
-                "response": body
-            }
+    response = requests.put(url, headers, json=payload)
 
-async def _moveTask(TOKEN: str, TASK_ID: str, LIST_ID: int):
+    try:
+        body = response.json()
+    except Exception:
+        body = {}
+
+    return {
+        "status_code": response.status_code,
+        "success": response.status_code == 200,
+        "response": body
+    }
+
+def _moveTask(TOKEN: str, TASK_ID: str, LIST_ID: int):
     url = f"https://api.clickup.com/api/v2/list/{LIST_ID}/task/{TASK_ID}"
     headers={
         "Authorization": TOKEN,
         "Content-Type": "application/json"
     }
-    payload = {"list_id": LIST_ID}
+    response = requests.post(url, headers)
 
-    async with aiohttp.ClientSession() as session:
-        async with session.put(url, json=payload, headers=headers) as response:
-            try:
-                body = await response.json()
-            except Exception:
-                body = {}
- 
-            return {
-                "status_code": response.status,
-                "success": response.status == 200,
-                "response": body
-            }
-
-def _parseDeadline(deadline: str) -> int:
-    dt = dateparser.isoparse(deadline)
-    if dt.tzinfo is None:
-        raise ValueError("Deadline must include timezone information.")
-    return int(dt.timestamp() * 1000)
+    try:
+        body = response.json()
+    except Exception:
+        body = {}
 
 async def findTaskByName(TOKEN: str, user_id: int, task_name: str):
     tasks = await _getCachedTasks(TOKEN, user_id)
