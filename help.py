@@ -2,9 +2,10 @@ import aiohttp
 import time
 from server import *
 from ai import *
+from modal_app import *
 from datetime import datetime, timedelta, timezone
 from dateutil import parser as dateparser
- 
+
 task_cache = {}
 CACHE_TTL = 3600
 
@@ -230,7 +231,7 @@ async def modifyTaskHandler(params, TOKEN):
 
 async def summarizeConversationHandler(params, TOKEN):
     transcript = params["transcript"]
-    result = summarizeTranscript(transcript[-12000:])
+    result = await summarizeTranscript(transcript[-12000:])
  
     summary = result.get("summary", "No summary generated.")
     action_items = result.get("action_items", [])
@@ -463,3 +464,10 @@ async def findTaskByName(TOKEN: str, user_id: int, task_name: str):
     tasks = await _getCachedTasks(TOKEN, user_id)
     matches = [t for t in tasks if t["task_name"].lower() == task_name.lower()]
     return matches
+
+    if status == 429:
+        raise RuntimeError("RATE_LIMIT")
+    elif status == 503:
+        raise RuntimeError("SERVICE_UNAVAILABLE")
+    else:
+        raise RuntimeError(f"Modal request failed ({status}): {body}")
