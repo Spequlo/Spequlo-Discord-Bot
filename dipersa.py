@@ -45,7 +45,7 @@ async def on_ready():
         if bot.user is None:
             return
         
-        intro_channel = "commands"
+        intro_channel = "commands_test"
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
         channel_id = getChannel(intro_channel)
         
@@ -84,7 +84,7 @@ async def on_message(message):
             referenced_message = None
     
     if referenced_message:
-        print(f"Reply context found: {bot_context.get(referenced_message.id)}")
+        # print(f"Reply context found: {bot_context.get(referenced_message.id)}")
         metadata = bot_context.get(referenced_message.id)
         is_reply_to_bot = (referenced_message.author.id == bot.user.id)
 
@@ -99,6 +99,8 @@ async def on_message(message):
     
     request_context = {"current_message": content, "referenced_message": referenced_message.content if referenced_message else None, "metadata": metadata}
     assignee_id, assignee_name = findAssignee(message, bot.user)
+
+    thinking_message = await message.reply("⏳ Processing your request...")
 
     try:
         result = await classifyIntent(request_context, message.author.id, message.author.display_name, assignee_id, assignee_name)
@@ -131,32 +133,45 @@ async def on_message(message):
             await message.reply("I understood the intent but don't have a handler for it yet.")
             return
 
-        result = handler(params, CLICKUP_TOKEN)
+        result = await handler(params, CLICKUP_TOKEN)
         logging.info("Handler Result: %s", json.dumps(result["metadata"], indent=2))
 
         if not isinstance(result, dict):
             raise RuntimeError(f"Handler {intent} returned invalid result")
         
-        bot_message = await message.reply(result["message"])
-        bot_context[bot_message.id] = {
+        await thinking_message.edit(content=result["message"])
+        # bot_message = await message.reply(result["message"])
+        bot_context[thinking_message.id] = {
             "intent": intent,
             "requester_discord_id": message.author.id,
             **result.get("metadata", {})
         }
 
     except RuntimeError as e:
-        if str(e) == "RATE_LIMIT":
-            await message.reply("Gemini is currently rate-limiting requests. Please try again in a moment.")
+        error = str(e)
+
+        if error == "RATE_LIMIT":
+            await message.reply("The AI service is currently rate limiting requests. Please try again in a moment.")
             return
-        elif str(e) == "SERVICE_UNAVAILABLE":
-            await message.reply("Gemini is temporarily unavailable. Please try again later.")
+        elif error == "SERVICE_UNAVAILABLE":
+            await message.reply("The AI service is temporarily unavailable. Please try again later.")
             return
-        elif str(e) == "QUOTA_EXCEEDED":
-            await message.reply("Gemini free-tier quota exhausted. Please try again later.")
+        elif error.startswith("Modal request failed"):
+            await message.reply("The AI service encountered an error while processing your request.")
+        elif error == "MODEL_ERROR":
+            await message.reply("The AI model encountered an internal error. Please try again.")
             return
+    except aiohttp.ClientError:
+        await message.reply("I couldn't reach the AI service. Please try again shortly.")
+        logging.exception("AI connection error")
+        return
+    except json.JSONDecodeError:
+        logging.exception("Model returned invalid JSON")
+        await message.reply("The AI returned an invalid response. Please try again.")
+        return
     except Exception as e:
-        print(e)
-        await message.reply(f"⚠️ Couldn't process that right now ({e}). Try again shortly.")
+        logging.exception("Unexpected error")
+        await message.reply("⚠️ Couldn't process that request right now. Please try again shortly.")
         return
 
 # Commands

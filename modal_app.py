@@ -2,7 +2,7 @@ import modal
 import json
 
 app = modal.App("dipersa")
-image = (modal.Image.debian_slim().pip_install("transformers", "torch", "accelerate", "huggingface_hub"))
+image = (modal.Image.debian_slim(force_build=True).pip_install("transformers", "torch", "accelerate", "huggingface_hub", "fastapi[standard]", "sentencepiece", "tokenizers", "tiktoken"))
 volume = modal.Volume.from_name("llama-weights", create_if_missing=True)
 
 TEAM_LISTS = """
@@ -67,7 +67,7 @@ Examples:
 → list_name: list
 """
 
-@app.cls(image=image, gpu="T4", scaledown_window=600, timeout=120, volumes={"/weights": volume}, secrets=[modal.Secret.from_name("huggingface")])
+@app.cls(image=image, gpu="L4", scaledown_window=600, timeout=600, volumes={"/weights": volume}, secrets=[modal.Secret.from_name("huggingface")])
 
 class Llama:
     @modal.enter()
@@ -79,10 +79,10 @@ class Llama:
  
         model_id = "meta-llama/Llama-3.1-8B-Instruct"
         weights_path = "/weights/llama-3.1-8b-instruct"
- 
+        snapshot_download(repo_id=model_id, local_dir=weights_path, token=os.environ["HF_TOKEN"])
         if not os.path.exists(weights_path):
             print("Downloading weights from Hugging Face...")
-            snapshot_download(repo_id=model_id, local_dir=weights_path, token=os.environ["HF_TOKEN"])
+            # snapshot_download(repo_id=model_id, local_dir=weights_path, token=os.environ["HF_TOKEN"])
             volume.commit()
             print("Weights downloaded and cached.")
  
@@ -92,14 +92,18 @@ class Llama:
         print("Model ready.")
 
     def _generate(self, system_prompt: str, user_prompt: str, max_new_tokens: int = 1024) -> str:
+        import torch
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
 
-        input_ids = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt").to(self.model.device)
-        output = self.model.generate(input_ids, max_new_tokens=max_new_tokens, do_sample=False, temperature=None, top_p=None, pad_token_id=self.tokenizer.eos_token_id)
-        new_tokens = output[0][input_ids.shape[-1]:]
+        inputs = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)
+        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            output = self.model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=self.tokenizer.eos_token_id)
+        input_length = inputs["input_ids"].shape[1]
+        new_tokens = output[0][input_length:]
         return self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
  
     @modal.method()
@@ -151,7 +155,16 @@ class Llama:
         - **priority:** 1 = Urgent, 2 = High, 3 = Normal (default), 4 = Low
         - **deadline:** Explicit dates only → YYYY-MM-DD. Never invent.
         - **team / list_name:** Must exactly match Available Workspace Tree. If ambiguous, set both to null.
-        - **assignee_discord_id:** Use Message Assignee Hook ID if present. "me" / "I'll take it" → SENDER ID. Otherwise null.
+        - **assignee_discord_id:** Use Message Assignee Hook ID if present. If the user is creating a task and does not explicitly assign it to someone else, default the assignee to the sender.  Phrases such as:
+            - "give me a task"
+            - "create a task"
+            - "make a task"
+            - "add a task"
+            - "I need a task"
+            imply the sender is the assignee.
+            "me", "I'll take it", "assign it to me"
+            → use SENDER ID.
+            Otherwise null.
         - **assignee_name:** Use Message Assignee Hook Name if present. "me" / "I'll take it" → SENDER NAME. Otherwise null.
         - **creator_id:** SENDER ID that requested to create a task, not the assignee. For `modify_task`, must come from Referenced Metadata. Never invent.
         - **requestor_id:** SENDER ID that requested a change to an existing task.
@@ -192,7 +205,12 @@ class Llama:
         {{"intent":"unclear","confidence":"low","params":{{}},"clarifying_question":"string"}}
         """
         raw = self._generate(system_prompt, user_prompt, max_new_tokens=512)
-        result = json.loads(raw)
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            print("RAW OUTPUT:")
+            print(raw)
+            raise
         required = {"intent", "confidence", "params", "clarifying_question"}
         missing = required - result.keys()
         if missing:
@@ -236,7 +254,12 @@ class Llama:
         {{"summary":"...","action_items":["..."],"open_questions":["..."]}}
         """
         raw = self._generate(system_prompt, user_prompt, max_new_tokens=1024)
-        result = json.loads(raw)
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            print("RAW OUTPUT:")
+            print(raw)
+            raise
         required = {"summary", "action_items", "open_questions"}
         missing = required - result.keys()
         if missing:
