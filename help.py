@@ -464,10 +464,3 @@ async def findTaskByName(TOKEN: str, user_id: int, task_name: str):
     tasks = await _getCachedTasks(TOKEN, user_id)
     matches = [t for t in tasks if t["task_name"].lower() == task_name.lower()]
     return matches
-
-    if status == 429:
-        raise RuntimeError("RATE_LIMIT")
-    elif status == 503:
-        raise RuntimeError("SERVICE_UNAVAILABLE")
-    else:
-        raise RuntimeError(f"Modal request failed ({status}): {body}")
