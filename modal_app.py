@@ -1,8 +1,9 @@
 import modal 
 import json
+from typing import Any
 
 app = modal.App("dipersa")
-image = (modal.Image.debian_slim(force_build=True).pip_install("transformers", "torch", "accelerate", "huggingface_hub", "fastapi[standard]", "sentencepiece", "tokenizers", "tiktoken"))
+image = (modal.Image.debian_slim().pip_install("transformers", "torch", "accelerate", "huggingface_hub", "fastapi[standard]", "sentencepiece", "tokenizers", "tiktoken"))
 volume = modal.Volume.from_name("llama-weights", create_if_missing=True)
 
 TEAM_LISTS = """
@@ -79,16 +80,16 @@ class Llama:
  
         model_id = "meta-llama/Llama-3.1-8B-Instruct"
         weights_path = "/weights/llama-3.1-8b-instruct"
-        snapshot_download(repo_id=model_id, local_dir=weights_path, token=os.environ["HF_TOKEN"])
+
         if not os.path.exists(weights_path):
             print("Downloading weights from Hugging Face...")
-            # snapshot_download(repo_id=model_id, local_dir=weights_path, token=os.environ["HF_TOKEN"])
+            snapshot_download(repo_id=model_id, local_dir=weights_path, token=os.environ["HF_TOKEN"])
             volume.commit()
             print("Weights downloaded and cached.")
  
         print("Loading model...")
         self.tokenizer = AutoTokenizer.from_pretrained(weights_path)
-        self.model = AutoModelForCausalLM.from_pretrained(weights_path, torch_dtype=torch.float16, device_map="auto")
+        self.model: Any = AutoModelForCausalLM.from_pretrained(weights_path, torch_dtype=torch.float16, device_map="auto")
         print("Model ready.")
 
     def _generate(self, system_prompt: str, user_prompt: str, max_new_tokens: int = 1024) -> str:
@@ -133,7 +134,13 @@ class Llama:
         2. **Context Resolution:** Resolve pronouns ("it", "that task", "the one you just made") using the `task_id` or `task_name` present in the Referenced Metadata.
         3. **Implicit Continuation:** Do not treat isolated fragment replies (e.g., "Backlog", "Me", "Tomorrow", "Current Sprint") as standalone requests. Combine them with the referenced context to fulfill the previous missing information.
         4. **Create vs Modify:** If the user references "this task" / "that task" but Referenced Metadata contains no existing ClickUp task ID or name, the reference points to something proposed in the current conversation → classify as `create_task`, not `modify_task`. `modify_task` requires a task that already exists in ClickUp.
-        
+        5. **Sender as Default Assignee:** For `create_task`, if no other person is mentioned or replied to, the sender is ALWAYS the assignee. Examples:
+            - "give me a task to fix X" → assignee_discord_id = SENDER ID
+            - "create a task to build Y" → assignee_discord_id = SENDER ID
+            - "add a task for the login bug" → assignee_discord_id = SENDER ID
+            - "I need to fix Z, make a task" → assignee_discord_id = SENDER ID
+            Only leave assignee_discord_id null if the task is explicitly meant for an unnamed/unknown person.
+
         ---
         
         ## Intent Classification
@@ -155,17 +162,12 @@ class Llama:
         - **priority:** 1 = Urgent, 2 = High, 3 = Normal (default), 4 = Low
         - **deadline:** Explicit dates only → YYYY-MM-DD. Never invent.
         - **team / list_name:** Must exactly match Available Workspace Tree. If ambiguous, set both to null.
-        - **assignee_discord_id:** Use Message Assignee Hook ID if present. If the user is creating a task and does not explicitly assign it to someone else, default the assignee to the sender.  Phrases such as:
-            - "give me a task"
-            - "create a task"
-            - "make a task"
-            - "add a task"
-            - "I need a task"
-            imply the sender is the assignee.
-            "me", "I'll take it", "assign it to me"
-            → use SENDER ID.
-            Otherwise null.
-        - **assignee_name:** Use Message Assignee Hook Name if present. "me" / "I'll take it" → SENDER NAME. Otherwise null.
+        - **assignee_discord_id:** 
+            - If another person is explicitly mentioned or replied to → use their ID from Message Assignee Hook.
+            - If the sender is requesting the task for themselves (any phrasing where no other person is involved) → use SENDER ID.
+            - "me", "I'll take it", "assign it to me" → SENDER ID.
+            - Only null if the task is explicitly meant for an unspecified or unknown person.
+        - **assignee_name:** Follows the same logic as assignee_discord_id but uses the name.
         - **creator_id:** SENDER ID that requested to create a task, not the assignee. For `modify_task`, must come from Referenced Metadata. Never invent.
         - **requestor_id:** SENDER ID that requested a change to an existing task.
         - **mode:** Determines how the conversation range is selected for `summarize_conversation`.
