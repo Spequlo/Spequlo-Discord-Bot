@@ -1,256 +1,43 @@
-import modal 
-import json
+import aiohttp
+import os
+from dotenv import load_dotenv
 
-app = modal.App("dipersa")
-image = (modal.Image.debian_slim().pip_install("transformers", "torch", "accelerate", "huggingface_hub"))
-volume = modal.Volume.from_name("llama-weights", create_if_missing=True)
+load_dotenv()
 
-TEAM_LISTS = """
-Team: mobile_app
-Purpose: Features, improvements, bugs, and maintenance related to the mobile application.
+CLASSIFY_URL : str  = os.getenv("MODAL_CLASSIFY_URL", "")
+SUMMARIZE_URL: str = os.getenv("MODAL_SUMMARIZE_URL", "")
 
-Lists:
-- backlog: Planned mobile work not currently being worked on.
-- current_sprint: Mobile app work actively being developed this sprint.
-- bugs: Mobile-specific issues and bug fixes.
+async def classifyIntent(request: dict, user_id: int, user_name: str, assignee_id, assignee_name) -> dict:
+    payload = {
+        "request": request,
+        "user_id": user_id,
+        "user_name": user_name,
+        "assignee_id": assignee_id,
+        "assignee_name": assignee_name,
+    }
 
-Team: integration
-Purpose: Integrations between Spequlo and external services, APIs, third-party platforms, deploying to third party platforms, and automation systems.
+    async with aiohttp.ClientSession() as session:
+        async with session.post(CLASSIFY_URL, json=payload) as response:
+            if response.status != 200:
+                error = await response.text()
+                _handle_error(response.status, error)
+            return await response.json()
 
-Lists:
-- backlog: Planned integration work set aside for a later date.
-- current_sprint: Integration work actively being developed.
-- bugs: Integration-specific issues.
+async def summarizeTranscript(transcript: str) -> dict:
+    payload = {"transcript": transcript}
 
-Team: internal_tools
-Purpose: Internal company tools, admin panels, Discord bots, development utilities, automation scripts, operational tooling, and engineering productivity tools.
+    async with aiohttp.ClientSession() as session:
+        async with session.post(SUMMARIZE_URL, json=payload) as response:
+            if response.status != 200:
+                error = await response.text()
+                _handle_error(response.status, error)
+            return await response.json()
 
-Lists:
-- backlog: Planned internal tooling work.
-- current_sprint: Internal tooling work actively being developed.
-- bugs: Internal tool issues.
-
-Team: infrastructure
-Purpose: Hosting, servers, deployments, cloud resources, networking, databases, monitoring, CI/CD, security, and platform reliability.
-
-Lists:
-- backlog: Planned infrastructure work.
-- current_sprint: Infrastructure work actively being worked on.
-- bugs: Infrastructure incidents and issues.
-
-Team: website
-Purpose: The company's website, landing pages, marketing pages, SEO, and web presence.
-
-Lists:
-- list: General website work.
-
-Examples:
-
-"Add login screen to the mobile app"
-→ team: mobile_app
-→ list_name: current_sprint
-
-"Fix deployment pipeline"
-→ team: infrastructure
-→ list_name: current_sprint
-
-"Integrate Slack notifications"
-→ team: integration
-→ list_name: current_sprint
-
-"Add a command to the Discord bot"
-→ team: internal_tools
-→ list_name: current_sprint
-
-"Update the company landing page"
-→ team: website
-→ list_name: list
-"""
-
-@app.cls(image=image, gpu="T4", scaledown_window=600, timeout=120, volumes={"/weights": volume}, secrets=[modal.Secret.from_name("huggingface")])
-
-
-class Llama:
-    @modal.enter()
-    def load(self):
-        import os
-        import torch
-        from transformers import AutoTokenizer, AutoModelForCausalLM
-        from huggingface_hub import snapshot_download
- 
-        model_id = "meta-llama/Llama-3.1-8B-Instruct"
-        weights_path = "/weights/llama-3.1-8b-instruct"
- 
-        if not os.path.exists(weights_path):
-            print("Downloading weights from Hugging Face...")
-            snapshot_download(repo_id=model_id, local_dir=weights_path, token=os.environ["HF_TOKEN"])
-            volume.commit()
-            print("Weights downloaded and cached.")
- 
-        print("Loading model...")
-        self.tokenizer = AutoTokenizer.from_pretrained(weights_path)
-        self.model = AutoModelForCausalLM.from_pretrained(weights_path, torch_dtype=torch.float16, device_map="auto")
-        print("Model ready.")
-
-    def _generate(self, system_prompt: str, user_prompt: str, max_new_tokens: int = 1024) -> str:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-
-        input_ids = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt").to(self.model.device)
-        output = self.model.generate(input_ids, max_new_tokens=max_new_tokens, do_sample=False, temperature=None, top_p=None, pad_token_id=self.tokenizer.eos_token_id)
-        new_tokens = output[0][input_ids.shape[-1]:]
-        return self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
- 
-    @modal.method()
-    def classify(self, request: dict, user_id: int, user_name: str, assignee_id, assignee_name) -> dict:
-        system_prompt = (
-            "You are an intent router for a Discord bot managing ClickUp tasks. "
-            "You analyze input data to determine user intent, extract exact parameters, "
-            "and output structured JSON. "
-            "Respond ONLY with a raw valid JSON object. No markdown, no explanation, no preamble."
-        )
-
-        user_prompt = rf"""
-        Analyze the input data below and output structured JSON.
-        
-        ## Input Context
-        - **Sender:** NAME: {user_name} (ID: {user_id})
-        - **Current Message:** "{request["current_message"]}"
-        - **Referenced Message:** "{request["referenced_message"]}"
-        - **Referenced Metadata:** {json.dumps(request["metadata"])}
-        - **Message Assignee Hook:** Name: {assignee_name} | ID: {assignee_id} (Value is "none" if no explicit mention/reply target exists)
-        - **Available Workspace Tree:** {TEAM_LISTS}
-        
-        ---
-        
-        ## Core Routing Rules
-        1. **Metadata Primacy:** Metadata is generated by the bot and is absolute truth. If metadata and message text conflict, prefer metadata.
-        2. **Context Resolution:** Resolve pronouns ("it", "that task", "the one you just made") using the `task_id` or `task_name` present in the Referenced Metadata.
-        3. **Implicit Continuation:** Do not treat isolated fragment replies (e.g., "Backlog", "Me", "Tomorrow", "Current Sprint") as standalone requests. Combine them with the referenced context to fulfill the previous missing information.
-        4. **Create vs Modify:** If the user references "this task" / "that task" but Referenced Metadata contains no existing ClickUp task ID or name, the reference points to something proposed in the current conversation → classify as `create_task`, not `modify_task`. `modify_task` requires a task that already exists in ClickUp.
-        
-        ---
-        
-        ## Intent Classification
-        Classify the message into exactly one category:
-        - `view_tasks`: Request to view assigned tasks.
-        - `create_task`: Request to create a new task, including assigning/configuring a task proposed in the current conversation. Must have a clear action item or commitment. No brainstorming or loose ideas.
-        - `modify_task`: Request to edit one or more properties of an already-existing ClickUp task (assignee, deadline, priority, list, title, description).
-        - `summarize_conversation`: Request to read channel history and produce a summary based on a mode. The mode could be a number of messages, a time period or based on a reply in Referenced Message. If no range specified, default to count=100.
-        - `bot_info`: Request for bot capabilities, supported commands, examples, or guidance on how to use the bot.
-        - `unclear`: Does not map cleanly, or a required parameter is missing.
-        
-        ---
-        
-        ## Parameter Rules
-        Extract only what is explicitly present or directly implied. Never invent data.
-        
-        - **task_id / task_name:** Pull from Referenced Metadata when the user refers to an existing task.
-        - **name:** Short and actionable. For `create_task` only.
-        - **priority:** 1 = Urgent, 2 = High, 3 = Normal (default), 4 = Low
-        - **deadline:** Explicit dates only → YYYY-MM-DD. Never invent.
-        - **team / list_name:** Must exactly match Available Workspace Tree. If ambiguous, set both to null.
-        - **assignee_discord_id:** Use Message Assignee Hook ID if present. "me" / "I'll take it" → SENDER ID. Otherwise null.
-        - **assignee_name:** Use Message Assignee Hook Name if present. "me" / "I'll take it" → SENDER NAME. Otherwise null.
-        - **creator_id:** SENDER ID that requested to create a task, not the assignee. For `modify_task`, must come from Referenced Metadata. Never invent.
-        - **requestor_id:** SENDER ID that requested a change to an existing task.
-        - **mode:** Determines how the conversation range is selected for `summarize_conversation`.
-        - **timeframe:** Summarize messages from a specific time period.
-        - **count:** Number of recent messages to summarize.
-        - **anchor:** Summarize messages starting from a referenced message.
-        - **changes:** `modify_task` only. Object containing only the fields the user explicitly wants to change.
-        - **remove_assignee:** True when explicitly removing assignment from a task.
-        
-        ---
-        
-        ## Confidence & Clarifications
-        - `low` if intent is ambiguous or a required parameter is missing. Write a specific, short `clarifying_question`.
-        - `high` / `medium` → `clarifying_question: null`.
-        
-        ---
-        
-        ## Output Format
-        Respond ONLY with a raw valid JSON object. No markdown fences, no explanation.
-        
-        For `view_tasks`:
-        {{"intent":"view_tasks","confidence":"high|medium|low","params":{{"assignee_discord_id":"string|null","assignee_name":"string|null"}},"clarifying_question":null}}
-        
-        For `create_task`:
-        {{"intent":"create_task","confidence":"high|medium|low","params":{{"name":"string|null","description":"string|null","priority":"1|2|3|4|null","assignee_discord_id":"string|null","assignee_name":"string|null","deadline":"YYYY-MM-DD|null","team":"string|null","list_name":"string|null","creator_id":"string|null","requestor_id":"string|null"}},"clarifying_question":null}}
-        
-        For `modify_task`:
-        {{"intent":"modify_task","confidence":"high|medium|low","params":{{"task_id":"string|null","task_name":"string|null","creator_id":"string|null","requestor_id":"string|null","changes":{{"name":"string|null","description":"string|null","assignee_discord_id":"string|null","assignee_name":"string|null","deadline":"YYYY-MM-DD|null","priority":"1|2|3|4|null","team":"string|null","list_name":"string|null","remove_assignee":"true|false"}}}},"clarifying_question":null}}
-        
-        For `summarize_conversation`:
-        {{"intent":"summarize_conversation","confidence":"high|medium|low","params":{{"mode":"timeframe|count|anchor","timeframe":"Xh|Xd|Xm|today|null","count":"integer|null"}},"clarifying_question":null}}
-        
-        For `bot_info`:
-        {{"intent":"help","confidence":"high|medium|low","params":{{}},"clarifying_question":null}}
-        
-        For `unclear`:
-        {{"intent":"unclear","confidence":"low","params":{{}},"clarifying_question":"string"}}
-        """
-        raw = self._generate(system_prompt, user_prompt, max_new_tokens=512)
-        result = json.loads(raw)
-        required = {"intent", "confidence", "params", "clarifying_question"}
-        missing = required - result.keys()
-        if missing:
-            raise ValueError(f"Missing fields in classify response: {missing}")
-        return result
- 
-    @modal.method()
-    def summarize(self, transcript: str) -> dict:
-        system_prompt = (
-            "You are summarizing a Discord conversation. "
-            "Respond ONLY with a raw valid JSON object. No markdown, no explanation, no preamble."
-        )
- 
-        user_prompt = rf"""
-        Summarize the Discord conversation below.
-        
-        ---
-
-        ## Message Format
-        Each message follows this format: YYYY-MM-DD HH:MM - DISCORD_ID (DISPLAY_NAME): message
-        
-        ---
-
-        ## Conversation
-        {transcript}
-        
-        ---
-        
-        ## Summary Rules
-        - Generate a concise summary that captures:
-            1. Key decisions made.
-            2. Important information shared.
-            3. Action items or commitments.
-            4. Open questions or unresolved issues.
-        - Do not repeat every message.
-        - Focus on outcomes, decisions, and important context.
-        - Use the DISPLAY_NAME to refer to participants.
-        
-        ## Output Format
-        Respond ONLY with a raw valid JSON object. No markdown fences, no explanation.
-        {{"summary":"...","action_items":["..."],"open_questions":["..."]}}
-        """
-        raw = self._generate(system_prompt, user_prompt, max_new_tokens=1024)
-        result = json.loads(raw)
-        required = {"summary", "action_items", "open_questions"}
-        missing = required - result.keys()
-        if missing:
-            raise ValueError(f"Missing fields in summarize response: {missing}")
-        return result
- 
-@app.function(image=image)
-@modal.fastapi_endpoint(method="POST")
-def classify_endpoint(body: dict) -> dict:
-    return Llama().classify.remote(request=body["request"], user_id=body["user_id"],  user_name=body["user_name"], assignee_id=body.get("assignee_id"),  assignee_name=body.get("assignee_name"))
-
-@app.function(image=image)
-@modal.fastapi_endpoint(method="POST")
-def summarize_endpoint(body: dict) -> dict:
-    return Llama().summarize.remote(transcript=body["transcript"])
- 
+def _handle_error(status: int, body: str):
+    if status == 429:
+        raise RuntimeError("RATE_LIMIT")
+    elif status == 503:
+        raise RuntimeError("SERVICE_UNAVAILABLE")
+    else:
+        raise RuntimeError(f"Modal request failed ({status}): {body}")
+    
