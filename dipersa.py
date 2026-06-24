@@ -101,7 +101,7 @@ async def on_message(message):
     assignee_id, assignee_name = findAssignee(message, bot.user)
 
     try:
-        result = classifyIntent(request_context, message.author.id, message.author.display_name, assignee_id, assignee_name)
+        result = await classifyIntent(request_context, message.author.id, message.author.display_name, assignee_id, assignee_name)
         intent = result["intent"]
         confidence = result["confidence"]
         params = result["params"]
