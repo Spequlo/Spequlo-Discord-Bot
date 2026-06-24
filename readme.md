@@ -1,6 +1,6 @@
 # Dipersa
 
-Dipersa is a Discord bot that lets your team manage ClickUp tasks using natural language. Instead of switching between Discord and ClickUp, users can create tasks, modify existing ones, view assigned work, and summarize conversations directly from Discord.
+Dipersa is a Discord bot that lets the Spequlo team manage ClickUp tasks using natural language. Instead of switching between Discord and ClickUp, users can create tasks, modify existing ones, view assigned work, and summarize conversations directly from Discord.
 
 The bot uses a self-hosted Llama 3.1 8B Instruct model to classify intent, extract parameters, and route requests to the appropriate handler — enabling conversational project management without rigid commands.
 
