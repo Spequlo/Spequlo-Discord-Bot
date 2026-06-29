@@ -45,7 +45,7 @@ async def on_ready():
         if bot.user is None:
             return
         
-        intro_channel = "commands"
+        intro_channel = "commands_test"
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
         channel_id = getChannel(intro_channel)
         
