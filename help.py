@@ -2,7 +2,6 @@ import aiohttp
 import time
 from server import *
 from ai import *
-from modal_app import *
 from datetime import datetime, timedelta, timezone
 from dateutil import parser as dateparser
 
