@@ -45,7 +45,7 @@ async def on_ready():
         if bot.user is None:
             return
         
-        intro_channel = "commands"
+        intro_channel = "commands_test"
         embed = discord.Embed(title=f"Hello Guys, {bot.user.name} here", description="I am a discord bot designed for use by the Spequlo Team on discord", color=discord.Color.blue())
         channel_id = getChannel(intro_channel)
         
@@ -84,9 +84,19 @@ async def on_message(message):
             referenced_message = None
     
     if referenced_message:
-        # print(f"Reply context found: {bot_context.get(referenced_message.id)}")
         metadata = bot_context.get(referenced_message.id)
         is_reply_to_bot = (referenced_message.author.id == bot.user.id)
+
+        if not is_reply_to_bot and metadata is None:
+            if referenced_message.reference:
+                try:
+                    parent_message = referenced_message.reference.resolved or \
+                        await message.channel.fetch_message(referenced_message.reference.message_id)
+                    if parent_message and parent_message.author.id == bot.user.id:
+                        metadata = bot_context.get(parent_message.id)
+                        is_reply_to_bot = True
+                except discord.NotFound:
+                    pass #add a better check here
 
     if not is_mention and not is_reply_to_bot:
         return
@@ -100,8 +110,6 @@ async def on_message(message):
     request_context = {"current_message": content, "referenced_message": referenced_message.content if referenced_message else None, "metadata": metadata}
     assignee_id, assignee_name = findAssignee(message, bot.user)
 
-    thinking_message = await message.reply("⏳ Processing your request...")
-
     try:
         result = await classifyIntent(request_context, message.author.id, message.author.display_name, assignee_id, assignee_name)
         intent = result["intent"]
@@ -113,7 +121,7 @@ async def on_message(message):
         if confidence == "low" or intent == "unclear":
             question = result.get("clarifying_question") or "I'm not sure what you'd like me to do — could you clarify?"
             bot_message = await message.reply(question)
-            bot_context[bot_message.id] = {"conversation_type": "clarification", "original_result": result}
+            bot_context[bot_message.id] = {"conversation_type": "clarification", "original_result": result, "original_user_message": content, "clarifying_question": question}
             return
         
         request_handlers = {
@@ -138,13 +146,12 @@ async def on_message(message):
 
         if not isinstance(result, dict):
             raise RuntimeError(f"Handler {intent} returned invalid result")
-        
-        await thinking_message.edit(content=result["message"])
-        # bot_message = await message.reply(result["message"])
-        bot_context[thinking_message.id] = {
+
+        bot_message = await message.reply(result["message"])
+        bot_context[bot_message.id] = {
             "intent": intent,
             "requester_discord_id": message.author.id,
-            **result.get("metadata", {})
+            **result.get("metadata", {}),
         }
 
     except RuntimeError as e:
