@@ -2,7 +2,7 @@
 
 Dipersa is a Discord bot that lets the Spequlo team manage ClickUp tasks using natural language. Instead of switching between Discord and ClickUp, users can create tasks, modify existing ones, view assigned work, and summarize conversations directly from Discord.
 
-The bot uses a self-hosted Llama 3.1 8B Instruct model to classify intent, extract parameters, and route requests to the appropriate handler — enabling conversational project management without rigid commands.
+The bot uses Gemini 2.5 Flash-Lite (via OpenRouter) to classify intent, extract parameters, and route requests to the appropriate handler — enabling conversational project management without rigid commands.
 
 ---
 
@@ -89,7 +89,7 @@ Every bot response stores contextual metadata alongside the Discord message. Whe
 
 ### Intent Classification
 
-User messages are sent to the self-hosted Llama 3.1 8B model which classifies intent and extracts structured parameters. Supported intents:
+User messages are sent to Gemini 2.5 Flash-Lite via the OpenRouter API, which classifies intent and extracts structured parameters. Supported intents:
 
 - `create_task`
 - `modify_task`
@@ -121,7 +121,7 @@ User task data is cached in memory with a 60-second TTL to reduce ClickUp API ca
 ```
 Discord (discord.py)
     ↓
-Intent Classifier (Llama 3.1 8B — Modal)
+Intent Classifier (Gemini 2.5 Flash-Lite — OpenRouter)
     ↓
 Handler (helpers.py)
     ↓
@@ -132,7 +132,7 @@ ClickUp REST API
 |---|---|
 | Bot framework | discord.py |
 | HTTP client | aiohttp |
-| LLM inference | Llama 3.1 8B Instruct (self-hosted on Modal) |
+| LLM inference | Gemini 2.5 Flash-Lite (OpenRouter) |
 | Project management | ClickUp API |
 | Database | Supabase |
 | Bot hosting | Railway |
@@ -145,16 +145,6 @@ ClickUp REST API
 ### Bot (Railway)
 
 The bot runs on Railway and deploys automatically on push to the main branch.
-
-### LLM (Modal)
-
-The Llama 3.1 8B model is deployed on Modal with an L4 GPU. Weights are cached in a Modal Volume after the first download.
-
-```bash
-modal deploy ./modal_app.py
-```
-
-The container scales down after 10 minutes of inactivity and cold-starts on the next request.
 
 ---
 
